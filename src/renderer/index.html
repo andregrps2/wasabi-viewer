@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wasabi Viewer</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <!-- Tela de Configuração -->
+    <div id="config-screen" class="screen active">
+        <div class="config-container">
+            <div class="config-header">
+                <h1><i class="fas fa-cloud"></i> Wasabi Viewer</h1>
+                <p>Gerenciar conexões com múltiplos buckets Wasabi S3</p>
+            </div>
+
+            <!-- Lista de Buckets Salvos -->
+            <div id="saved-configs" class="saved-configs">
+                <h3>Buckets Salvos</h3>
+                <div id="config-list" class="config-list">
+                    <div class="empty-configs">
+                        <i class="fas fa-plus-circle"></i>
+                        <p>Adicione sua primeira configuração abaixo</p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Seção de Token Compartilhado -->
+            <div class="share-section">
+                <h3>Conectar via Token Compartilhado</h3>
+                <div class="share-token-input">
+                    <input type="text" id="share-token-input" placeholder="Cole o token compartilhado aqui...">
+                    <button type="button" id="connect-shared-btn" class="btn btn-primary">
+                        <i class="fas fa-key"></i> Conectar
+                    </button>
+                </div>
+            </div>
+
+            <div class="divider">
+                <span>OU</span>
+            </div>
+            
+            <div class="new-config-section">
+                <button id="new-config-btn" class="btn btn-primary">
+                    <i class="fas fa-plus"></i> Nova Configuração
+                </button>
+            </div>
+            
+            <div id="config-status" class="status-message"></div>
+        </div>
+    </div>
+
+    <!-- Modal de Nova/Editar Configuração -->
+    <div id="config-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="config-modal-title">Nova Configuração</h3>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="config-form" class="config-form">
+                    <div class="form-group">
+                        <label for="accessKey">Access Key:</label>
+                        <input type="text" id="accessKey" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="secretKey">Secret Key:</label>
+                        <input type="password" id="secretKey" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="configName">Nome da Configuração:</label>
+                        <input type="text" id="configName" placeholder="ex: Bucket Principal" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="bucket">Bucket:</label>
+                        <input type="text" id="bucket" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="prefix">Prefix (opcional):</label>
+                        <input type="text" id="prefix" placeholder="ex: uploads/">
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="region">Região:</label>
+                            <select id="region" required>
+                                <option value="us-east-1">us-east-1</option>
+                                <option value="us-west-1">us-west-1</option>
+                                <option value="eu-central-1">eu-central-1</option>
+                                <option value="ap-northeast-1">ap-northeast-1</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="endpoint">Endpoint:</label>
+                            <input type="url" id="endpoint" value="https://s3.wasabisys.com" required>
+                        </div>
+                    </div>
+                    
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save"></i> <span id="save-btn-text">Salvar e Conectar</span>
+                        </button>
+                        <button type="button" id="cancel-modal-btn" class="btn btn-secondary">
+                            <i class="fas fa-times"></i> Cancelar
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tela Principal -->
+    <div id="main-screen" class="screen">
+        <header class="main-header">
+            <div class="header-left">
+                <h1><i class="fas fa-cloud"></i> Wasabi Viewer</h1>
+                <div class="bucket-selector">
+                    <select id="bucket-select" class="bucket-select">
+                        <option value="">Selecione um bucket...</option>
+                    </select>
+                </div>
+                <button id="config-btn" class="btn btn-secondary">
+                    <i class="fas fa-cog"></i> Configurações
+                </button>
+            </div>
+            
+            <div class="header-right">
+                <div class="search-container">
+                    <input type="text" id="search-input" placeholder="Pesquisar arquivos...">
+                    <i class="fas fa-search"></i>
+                </div>
+                
+                <button id="theme-toggle" class="btn btn-secondary theme-toggle" title="Alternar Tema">
+                    <i class="fas fa-moon"></i>
+                </button>
+                
+                <button id="refresh-btn" class="btn btn-primary">
+                    <i class="fas fa-sync-alt"></i> Atualizar
+                </button>
+            </div>
+        </header>
+
+        <main class="main-content">
+            <!-- Navegação de pastas -->
+            <div class="breadcrumb">
+                <span id="breadcrumb-path">
+                    <i class="fas fa-home"></i> Início
+                </span>
+            </div>
+
+            <!-- Lista de arquivos -->
+            <div class="file-list-container">
+                <div class="file-list-header">
+                    <div class="column-header name-column">
+                        <i class="fas fa-file"></i> Nome
+                    </div>
+                    <div class="column-header size-column">
+                        <i class="fas fa-weight-hanging"></i> Tamanho
+                    </div>
+                    <div class="column-header date-column">
+                        <i class="fas fa-calendar"></i> Modificado
+                    </div>
+                    <div class="column-header actions-column">
+                        <i class="fas fa-tools"></i> Ações
+                    </div>
+                </div>
+                
+                <div id="file-list" class="file-list">
+                    <div class="loading">
+                        <i class="fas fa-spinner fa-spin"></i>
+                        Carregando arquivos...
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Modal de Progress -->
+        <div id="progress-modal" class="modal">
+            <div class="modal-content">
+                <h3>Download em andamento...</h3>
+                <div class="progress-bar">
+                    <div id="progress-fill" class="progress-fill"></div>
+                </div>
+                <p id="progress-text">Preparando download...</p>
+            </div>
+        </div>
+
+        <!-- Modal de Compartilhamento -->
+        <div id="share-modal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Compartilhar Configuração</h3>
+                    <button class="modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="share-info">
+                        <p><strong>Configuração:</strong> <span id="share-config-name"></span></p>
+                        <p class="share-warning">
+                            <i class="fas fa-exclamation-triangle"></i>
+                            Este token contém credenciais de acesso. Compartilhe apenas com pessoas confiáveis.
+                        </p>
+                    </div>
+                    
+                    <div class="share-actions">
+                        <button id="generate-token-btn" class="btn btn-primary">
+                            <i class="fas fa-share"></i> Gerar Token de Compartilhamento
+                        </button>
+                    </div>
+                    
+                    <div id="share-result" class="share-result">
+                        <label>Token de Compartilhamento:</label>
+                        <textarea id="share-token" readonly></textarea>
+                        <div class="share-result-actions">
+                            <button id="copy-token-btn" class="btn btn-success">
+                                <i class="fas fa-copy"></i> Copiar Token
+                            </button>
+                            <button id="copy-instructions-btn" class="btn btn-info">
+                                <i class="fas fa-info-circle"></i> Copiar Instruções
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal de Link -->
+        <div id="link-modal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Link do Arquivo</h3>
+                    <button class="modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="link-options">
+                        <button id="signed-link-btn" class="btn btn-primary">
+                            <i class="fas fa-key"></i> Gerar Link Temporário (1h)
+                        </button>
+                    </div>
+                    <div class="link-result">
+                        <textarea id="generated-link" readonly></textarea>
+                        <button id="copy-link-btn" class="btn btn-success">
+                            <i class="fas fa-copy"></i> Copiar
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notifications -->
+    <div id="notifications" class="notifications"></div>
+
+    <script src="renderer.js"></script>
+</body>
+</html>

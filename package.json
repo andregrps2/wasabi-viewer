@@ -1,0 +1,45 @@
+{
+  "name": "wasabi-viewer",
+  "version": "1.0.0",
+  "description": "Aplicativo desktop para visualizar e gerenciar arquivos do Wasabi S3",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "dev-debug": "electron . --dev",
+    "build": "electron-builder",
+    "dist": "electron-builder --publish=never"
+  },
+  "keywords": [
+    "electron",
+    "wasabi",
+    "s3",
+    "file-manager"
+  ],
+  "author": "Equipe de Suporte",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^27.0.0",
+    "electron-builder": "^24.6.4"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.436.0",
+    "@aws-sdk/s3-request-presigner": "^3.436.0",
+    "crypto-js": "^4.2.0"
+  },
+  "build": {
+    "appId": "com.suporte.wasabi-viewer",
+    "productName": "Wasabi Viewer",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    }
+  }
+}
