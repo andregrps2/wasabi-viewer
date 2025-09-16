@@ -100,12 +100,12 @@ function renderConfigList() {
                 <button class="btn btn-success btn-connect" data-config-id="${config.id}" title="Conectar">
                     <i class="fas fa-plug"></i>
                 </button>
-                <button class="btn btn-info btn-share" data-config-id="${config.id}" title="Compartilhar">
+                ${config.isShared ? '' : `<button class="btn btn-info btn-share" data-config-id="${config.id}" title="Compartilhar">
                     <i class="fas fa-share-alt"></i>
-                </button>
-                <button class="btn btn-secondary btn-edit" data-config-id="${config.id}" title="Editar">
+                </button>`}
+                ${config.isShared ? '' : `<button class="btn btn-secondary btn-edit" data-config-id="${config.id}" title="Editar">
                     <i class="fas fa-edit"></i>
-                </button>
+                </button>`}
                 <button class="btn btn-danger btn-delete" data-config-id="${config.id}" title="Excluir">
                     <i class="fas fa-trash"></i>
                 </button>

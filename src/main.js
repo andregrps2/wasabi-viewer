@@ -92,6 +92,21 @@ ipcMain.handle('save-s3-config', async (event, config) => {
       forcePathStyle: true
     });
 
+    // Persistir no configs.json
+    const configPath = path.join(__dirname, '../configs.json');
+    let configs = [];
+    if (fs.existsSync(configPath)) {
+      configs = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    }
+    // Atualiza se já existe, senão adiciona
+    const idx = configs.findIndex(c => c.id === config.id);
+    if (idx !== -1) {
+      configs[idx] = { ...configs[idx], ...config, lastUsed: new Date().toISOString() };
+    } else {
+      configs.push({ ...config, createdAt: new Date().toISOString(), lastUsed: new Date().toISOString() });
+    }
+    fs.writeFileSync(configPath, JSON.stringify(configs, null, 2));
+
     return { success: true };
   } catch (error) {
     console.error('Erro ao configurar S3:', error);
@@ -249,6 +264,9 @@ ipcMain.handle('generate-share-token', async (event, configId, configs) => {
     if (!config) {
       throw new Error('Configuração não encontrada');
     }
+    if (config.isShared) {
+      return { success: false, error: 'Não é possível compartilhar um bucket compartilhado.' };
+    }
     
     // Dados que serão criptografados
     const shareData = {
@@ -361,9 +379,11 @@ ipcMain.handle('connect-shared-bucket', async (event, sharedConfig) => {
       accessKey: sharedConfig._encryptedCredentials.accessKey,
       secretKey: sharedConfig._encryptedCredentials.secretKey,
       name: sharedConfig.name,
-      isShared: true
+      isShared: true,
+      sharedAt: sharedConfig.sharedAt,
+      sharedBy: sharedConfig.sharedBy,
+      id: sharedConfig.id || ('shared-' + Date.now())
     };
-    
     s3Client = new S3Client({
       region: s3Config.region,
       endpoint: s3Config.endpoint,
@@ -373,6 +393,21 @@ ipcMain.handle('connect-shared-bucket', async (event, sharedConfig) => {
       },
       forcePathStyle: true
     });
+
+    // Persistir no configs.json
+    const configPath = path.join(__dirname, '../configs.json');
+    let configs = [];
+    if (fs.existsSync(configPath)) {
+      configs = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    }
+    // Atualiza se já existe, senão adiciona
+    const idx = configs.findIndex(c => c.id === s3Config.id);
+    if (idx !== -1) {
+      configs[idx] = { ...configs[idx], ...s3Config, lastUsed: new Date().toISOString() };
+    } else {
+      configs.push({ ...s3Config, createdAt: new Date().toISOString(), lastUsed: new Date().toISOString() });
+    }
+    fs.writeFileSync(configPath, JSON.stringify(configs, null, 2));
 
     return { success: true };
   } catch (error) {
