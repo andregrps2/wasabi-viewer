@@ -2,6 +2,8 @@
 
 Aplicativo desktop em Electron para visualizar e baixar arquivos de buckets Wasabi S3.
 
+![Tela principal](assets/screenshots/wasabi-viewer.png)
+
 ## Como usar
 
 1. Instale as dependências:
