@@ -48,6 +48,13 @@ app.on('activate', () => {
   }
 });
 
+function ensureUserDataDir() {
+  const dir = app.getPath('userData');
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+}
+
 // IPC Handlers
 
 // Testar conexão S3 (sem salvar)
@@ -93,7 +100,7 @@ ipcMain.handle('save-s3-config', async (event, config) => {
     });
 
     // Persistir no configs.json
-    const configPath = path.join(__dirname, '../configs.json');
+    const configPath = getConfigPath();
     let configs = [];
     if (fs.existsSync(configPath)) {
       configs = JSON.parse(fs.readFileSync(configPath, 'utf8'));
@@ -105,6 +112,7 @@ ipcMain.handle('save-s3-config', async (event, config) => {
     } else {
       configs.push({ ...config, createdAt: new Date().toISOString(), lastUsed: new Date().toISOString() });
     }
+    ensureUserDataDir();
     fs.writeFileSync(configPath, JSON.stringify(configs, null, 2));
 
     return { success: true };
@@ -117,7 +125,8 @@ ipcMain.handle('save-s3-config', async (event, config) => {
 // Salvar múltiplas configurações
 ipcMain.handle('save-s3-configs', async (event, configs) => {
   try {
-    const configPath = path.join(__dirname, '../configs.json');
+    const configPath = getConfigPath();
+    ensureUserDataDir();
     fs.writeFileSync(configPath, JSON.stringify(configs, null, 2));
     return { success: true };
   } catch (error) {
@@ -129,7 +138,7 @@ ipcMain.handle('save-s3-configs', async (event, configs) => {
 // Carregar múltiplas configurações
 ipcMain.handle('load-s3-configs', async () => {
   try {
-    const configPath = path.join(__dirname, '../configs.json');
+    const configPath = getConfigPath();
     if (fs.existsSync(configPath)) {
       const configs = JSON.parse(fs.readFileSync(configPath, 'utf8'));
       return configs;
@@ -395,7 +404,7 @@ ipcMain.handle('connect-shared-bucket', async (event, sharedConfig) => {
     });
 
     // Persistir no configs.json
-    const configPath = path.join(__dirname, '../configs.json');
+    const configPath = getConfigPath();
     let configs = [];
     if (fs.existsSync(configPath)) {
       configs = JSON.parse(fs.readFileSync(configPath, 'utf8'));
@@ -407,6 +416,7 @@ ipcMain.handle('connect-shared-bucket', async (event, sharedConfig) => {
     } else {
       configs.push({ ...s3Config, createdAt: new Date().toISOString(), lastUsed: new Date().toISOString() });
     }
+    ensureUserDataDir();
     fs.writeFileSync(configPath, JSON.stringify(configs, null, 2));
 
     return { success: true };
@@ -415,3 +425,6 @@ ipcMain.handle('connect-shared-bucket', async (event, sharedConfig) => {
     return { success: false, error: error.message };
   }
 });
+
+// Utilizar diretório de dados do usuário para configs.json
+const getConfigPath = () => path.join(app.getPath('userData'), 'configs.json');
