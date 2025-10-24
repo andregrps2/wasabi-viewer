@@ -7,6 +7,9 @@ let savedConfigs = [];
 let currentConfig = null;
 let editingConfigId = null;
 let sharingConfigId = null;
+// Variables to compute download speed and ETA
+let _downloadLastSample = null; // { time: ms, bytes: number }
+let _downloadSpeedBps = null; // smoothed bytes/sec
 
 // Elementos DOM
 const configScreen = document.getElementById('config-screen');
@@ -50,11 +53,11 @@ const generatedLink = document.getElementById('generated-link');
 document.addEventListener('DOMContentLoaded', async () => {
     // Carregar tema salvo
     loadSavedTheme();
-    
+
     // Carregar configurações salvas
     await loadSavedConfigs();
     setupEventListeners();
-    
+
     // Se há configurações salvas, mostrar a primeira na lista de buckets
     if (savedConfigs.length > 0) {
         populateBucketSelect();
@@ -63,6 +66,180 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (lastUsed) {
             await connectToBucket(lastUsed.id);
         }
+    }
+
+    // Ouvir eventos de progresso de download enviados do main
+    if (window.electronAPI && typeof window.electronAPI.onDownloadProgress === 'function') {
+        window.electronAPI.onDownloadProgress((event, data) => {
+            try {
+                const fill = document.getElementById('progress-fill');
+                const text = document.getElementById('progress-text');
+                const sizeText = document.getElementById('progress-size');
+                // Mostrar modal de progresso
+                progressModal.classList.add('active');
+                // If we have total bytes, compute an accurate percentage.
+                if (data && (data.totalBytes || data.totalBytes === 0)) {
+                    const total = Number(data.totalBytes) || 0;
+                    const downloaded = Number(data.downloadedBytes) || 0;
+                    const percentNum = total > 0 ? (downloaded / total) * 100 : (data.percent || 0);
+                    const percent = Math.min(100, Math.max(0, Number(percentNum)));
+                    const percentDisplay = Math.round(percent);
+                    fill.classList.remove('indeterminate');
+                    fill.style.width = `${percent}%`;
+                    text.textContent = `Progresso: ${percentDisplay}%`;
+                    sizeText.textContent = `${formatFileSize(downloaded)} / ${formatFileSize(total)}`;
+
+                    // ETA calculation
+                    try {
+                        const now = Date.now();
+                        if (_downloadLastSample && _downloadLastSample.bytes <= downloaded) {
+                            const dt = (now - _downloadLastSample.time) / 1000; // seconds
+                            const db = downloaded - _downloadLastSample.bytes; // bytes
+                            if (dt > 0 && db >= 0) {
+                                const instantBps = db / dt;
+                                if (_downloadSpeedBps && isFinite(_downloadSpeedBps)) {
+                                    _downloadSpeedBps = (_downloadSpeedBps * 0.75) + (instantBps * 0.25);
+                                } else {
+                                    _downloadSpeedBps = instantBps;
+                                }
+                            }
+                        }
+                        _downloadLastSample = { time: now, bytes: downloaded };
+
+                        if (_downloadSpeedBps && _downloadSpeedBps > 0 && total > downloaded) {
+                            const remainingSec = (total - downloaded) / _downloadSpeedBps;
+                            document.getElementById('progress-eta').textContent = `Estimado: ${formatTimeRemaining(remainingSec)}`;
+                        } else {
+                            document.getElementById('progress-eta').textContent = `—`;
+                        }
+                    } catch (e) {
+                        document.getElementById('progress-eta').textContent = `—`;
+                    }
+
+                    if (percent >= 100) {
+                        text.textContent = 'Download concluído';
+                        setTimeout(() => {
+                            closeModals();
+                            _downloadLastSample = null;
+                            _downloadSpeedBps = null;
+                        }, 1200);
+                    }
+                } else if (data && (data.percent !== null && data.percent !== undefined)) {
+                    // Fallback: percent provided by main
+                    const percent = Math.min(100, Math.max(0, Number(data.percent)));
+                    const percentDisplay = Math.round(percent);
+                    fill.classList.remove('indeterminate');
+                    fill.style.width = `${percent}%`;
+                    text.textContent = `Progresso: ${percentDisplay}%`;
+                    sizeText.textContent = data.downloadedBytes ? `${formatFileSize(data.downloadedBytes)} / ?` : '';
+
+                    // update sample for speed estimation when downloadedBytes provided
+                    if (data.downloadedBytes) {
+                        const downloaded = Number(data.downloadedBytes) || 0;
+                        const now = Date.now();
+                        if (_downloadLastSample && _downloadLastSample.bytes <= downloaded) {
+                            const dt = (now - _downloadLastSample.time) / 1000;
+                            const db = downloaded - _downloadLastSample.bytes;
+                            if (dt > 0 && db >= 0) {
+                                const instantBps = db / dt;
+                                if (_downloadSpeedBps && isFinite(_downloadSpeedBps)) {
+                                    _downloadSpeedBps = (_downloadSpeedBps * 0.75) + (instantBps * 0.25);
+                                } else {
+                                    _downloadSpeedBps = instantBps;
+                                }
+                            }
+                        }
+                        _downloadLastSample = { time: now, bytes: downloaded };
+                        document.getElementById('progress-eta').textContent = `—`;
+                    }
+
+                    if (percent >= 100) {
+                        text.textContent = 'Download concluído';
+                        setTimeout(() => {
+                            closeModals();
+                            _downloadLastSample = null;
+                            _downloadSpeedBps = null;
+                        }, 1200);
+                    }
+                } else if (data && data.downloadedBytes) {
+                    // Unknown total size: show downloaded bytes and indeterminate animation
+                    fill.classList.add('indeterminate');
+                    const downloaded = Number(data.downloadedBytes) || 0;
+                    text.textContent = `Baixados: ${formatFileSize(downloaded)}`;
+                    sizeText.textContent = `${formatFileSize(downloaded)} / ?`;
+
+                    // update sample for speed estimation
+                    const now = Date.now();
+                    if (_downloadLastSample && _downloadLastSample.bytes <= downloaded) {
+                        const dt = (now - _downloadLastSample.time) / 1000;
+                        const db = downloaded - _downloadLastSample.bytes;
+                        if (dt > 0 && db >= 0) {
+                            const instantBps = db / dt;
+                            if (_downloadSpeedBps && isFinite(_downloadSpeedBps)) {
+                                _downloadSpeedBps = (_downloadSpeedBps * 0.75) + (instantBps * 0.25);
+                            } else {
+                                _downloadSpeedBps = instantBps;
+                            }
+                        }
+                    }
+                    _downloadLastSample = { time: now, bytes: downloaded };
+                    document.getElementById('progress-eta').textContent = `—`;
+                }
+
+                if (data && data.cancelled) {
+                    text.textContent = 'Download cancelado';
+                    setTimeout(() => closeModals(), 1200);
+                }
+            } catch (err) {
+                console.error('Erro ao processar evento de progresso:', err);
+            }
+        });
+    }
+
+    // Botão de cancelar download — abrir modal de confirmação customizado
+    const cancelBtn = document.getElementById('cancel-download-btn');
+    const cancelConfirmModal = document.getElementById('cancel-confirm-modal');
+    const cancelYes = document.getElementById('cancel-confirm-yes');
+    const cancelNo = document.getElementById('cancel-confirm-no');
+
+    if (cancelBtn) {
+        cancelBtn.addEventListener('click', () => {
+            if (cancelConfirmModal) {
+                cancelConfirmModal.classList.add('active');
+            } else {
+                // fallback: enviar cancel direto
+                if (window.electronAPI && typeof window.electronAPI.cancelDownload === 'function') {
+                    window.electronAPI.cancelDownload();
+                    showNotification('Solicitado cancelamento do download', 'info');
+                }
+            }
+        });
+    }
+
+    // Confirmar cancelamento
+    if (cancelYes) {
+        cancelYes.addEventListener('click', async () => {
+            try {
+                if (window.electronAPI && typeof window.electronAPI.cancelDownload === 'function') {
+                    await window.electronAPI.cancelDownload();
+                }
+                showNotification('Download cancelado', 'info');
+            } catch (err) {
+                console.error('Erro ao cancelar download:', err);
+                showNotification('Erro ao cancelar download', 'error');
+            } finally {
+                if (cancelConfirmModal) cancelConfirmModal.classList.remove('active');
+                // também fechar modal de progresso
+                if (progressModal) progressModal.classList.remove('active');
+            }
+        });
+    }
+
+    // Cancelar a operação de fechar o modal de confirmação
+    if (cancelNo) {
+        cancelNo.addEventListener('click', () => {
+            if (cancelConfirmModal) cancelConfirmModal.classList.remove('active');
+        });
     }
 });
 
@@ -89,7 +266,7 @@ function renderConfigList() {
         `;
         return;
     }
-    
+
     const html = savedConfigs.map(config => `
         <div class="config-item" data-config-id="${config.id}">
             <div class="config-info">
@@ -112,27 +289,27 @@ function renderConfigList() {
             </div>
         </div>
     `).join('');
-    
+
     configList.innerHTML = html;
     setupConfigItemEvents();
 }
 
 // Popular seletor de bucket
 function populateBucketSelect() {
-    const options = savedConfigs.map(config => 
+    const options = savedConfigs.map(config =>
         `<option value="${config.id}">${config.name} (${config.bucket})</option>`
     ).join('');
-    
+
     let allOptions = options;
-    
+
     // Adicionar configuração compartilhada se estiver ativa
     if (currentConfig && currentConfig.isShared && !savedConfigs.find(c => c.id === currentConfig.id)) {
         const sharedOption = `<option value="${currentConfig.id}">${currentConfig.name} (${currentConfig.bucket})</option>`;
         allOptions = sharedOption + (options ? '<option disabled>──────────────</option>' + options : '');
     }
-    
+
     bucketSelect.innerHTML = '<option value="">Selecione um bucket...</option>' + allOptions;
-    
+
     // Selecionar o bucket atual se existir
     if (currentConfig) {
         bucketSelect.value = currentConfig.id;
@@ -165,7 +342,7 @@ function fillConfigForm(config = null) {
 function setupEventListeners() {
     // Formulário de configuração
     configForm.addEventListener('submit', handleConfigSubmit);
-    
+
     // Botões da interface
     refreshBtn.addEventListener('click', () => loadFiles());
     configBtn.addEventListener('click', showConfigScreen);
@@ -173,16 +350,16 @@ function setupEventListeners() {
     newConfigBtn.addEventListener('click', showNewConfigModal);
     cancelModalBtn.addEventListener('click', hideConfigModal);
     themeToggle.addEventListener('click', toggleTheme);
-    
+
     // Compartilhamento
     connectSharedBtn.addEventListener('click', handleConnectShared);
     generateTokenBtn.addEventListener('click', handleGenerateToken);
     copyTokenBtn.addEventListener('click', copyShareToken);
     copyInstructionsBtn.addEventListener('click', copyShareInstructions);
-    
+
     // Pesquisa
     searchInput.addEventListener('input', handleSearch);
-    
+
     // Modals
     setupModalEvents();
 }
@@ -195,7 +372,7 @@ function setupModalEvents() {
             closeModals();
         }
     });
-    
+
     // Botões de link
     document.getElementById('signed-link-btn').addEventListener('click', () => generateLink('signed'));
     document.getElementById('copy-link-btn').addEventListener('click', copyLink);
@@ -204,7 +381,7 @@ function setupModalEvents() {
 // Manipular submissão do formulário de configuração
 async function handleConfigSubmit(e) {
     e.preventDefault();
-    
+
     const config = {
         id: editingConfigId || generateId(),
         name: document.getElementById('configName').value,
@@ -217,12 +394,12 @@ async function handleConfigSubmit(e) {
         createdAt: editingConfigId ? savedConfigs.find(c => c.id === editingConfigId)?.createdAt : new Date().toISOString(),
         lastUsed: null
     };
-    
+
     showStatus('Testando conexão...', 'info');
-    
+
     try {
         const result = await window.electronAPI.testS3Connection(config);
-        
+
         if (result.success) {
             // Salvar configuração
             if (editingConfigId) {
@@ -231,13 +408,13 @@ async function handleConfigSubmit(e) {
             } else {
                 savedConfigs.push(config);
             }
-            
+
             await window.electronAPI.saveS3Configs(savedConfigs);
             renderConfigList();
             populateBucketSelect();
-            
+
             showStatus('Configuração salva com sucesso!', 'success');
-            
+
             // Conectar ao bucket
             setTimeout(async () => {
                 try {
@@ -249,7 +426,7 @@ async function handleConfigSubmit(e) {
                     showStatus('Erro ao conectar: ' + error.message, 'error');
                 }
             }, 1000);
-            
+
             // Resetar formulário
             fillConfigForm();
         } else {
@@ -282,22 +459,22 @@ function showMainScreen() {
 // Carregar arquivos do S3
 async function loadFiles(path = '') {
     console.log('Iniciando carregamento de arquivos, path:', path);
-    
+
     if (!currentConfig) {
         showEmptyState('Selecione um bucket para visualizar os arquivos');
         return;
     }
-    
+
     showLoading(true);
     currentPath = path;
-    
+
     try {
         console.log('Chamando listS3Objects...');
         const files = await window.electronAPI.listS3Objects(path);
         console.log('Arquivos carregados:', files.length);
         currentFiles = files;
         filteredFiles = files;
-        
+
         renderFiles(filteredFiles);
         updateBreadcrumb(path);
         console.log('Carregamento concluído com sucesso');
@@ -316,10 +493,10 @@ function renderFiles(files) {
         showEmptyState('Nenhum arquivo encontrado');
         return;
     }
-    
+
     const html = files.map(file => createFileItem(file)).join('');
     fileList.innerHTML = html;
-    
+
     // Adicionar event listeners aos itens
     setupFileItemEvents();
 }
@@ -330,7 +507,7 @@ function createFileItem(file) {
     const icon = isFolder ? 'fas fa-folder' : getFileIcon(file.name);
     const size = isFolder ? '-' : formatFileSize(file.size);
     const date = file.lastModified ? formatDate(file.lastModified) : '-';
-    
+
     return `
         <div class="file-item ${file.type}" data-key="${file.key}" data-type="${file.type}" data-name="${file.name}">
             <div class="file-name">
@@ -359,7 +536,7 @@ function setupFileItemEvents() {
         const type = item.dataset.type;
         const key = item.dataset.key;
         const name = item.dataset.name;
-        
+
         // Clique duplo para abrir pasta
         if (type === 'folder') {
             item.addEventListener('dblclick', () => {
@@ -367,7 +544,7 @@ function setupFileItemEvents() {
                 loadFiles(folderPath);
             });
         }
-        
+
         // Botão de download
         const downloadBtn = item.querySelector('.btn-download');
         if (downloadBtn) {
@@ -376,7 +553,7 @@ function setupFileItemEvents() {
                 downloadFile(key, name);
             });
         }
-        
+
         // Botão de link
         const linkBtn = item.querySelector('.btn-link');
         if (linkBtn) {
@@ -413,7 +590,7 @@ function getFileIcon(filename) {
         js: 'fas fa-file-code',
         json: 'fas fa-file-code'
     };
-    
+
     return iconMap[ext] || 'fas fa-file';
 }
 
@@ -424,6 +601,16 @@ function formatFileSize(bytes) {
     const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+function formatTimeRemaining(seconds) {
+    if (!isFinite(seconds) || seconds <= 0) return '—';
+    const s = Math.round(seconds);
+    const hrs = Math.floor(s / 3600);
+    const mins = Math.floor((s % 3600) / 60);
+    const secs = s % 60;
+    if (hrs > 0) return `${hrs}h ${String(mins).padStart(2,'0')}m`;
+    return `${mins}m ${String(secs).padStart(2,'0')}s`;
 }
 
 // Formatar data
@@ -438,41 +625,41 @@ function updateBreadcrumb(path) {
         breadcrumbPath.innerHTML = '<i class="fas fa-home"></i> Início';
         return;
     }
-    
+
     const parts = path.split('/').filter(p => p);
     let html = '<i class="fas fa-home"></i> <a href="#" onclick="loadFiles(\'\')">Início</a>';
-    
+
     let fullPath = '';
     parts.forEach((part, index) => {
         fullPath += part + '/';
         html += ` / <a href="#" onclick="loadFiles('${fullPath}')">${part}</a>`;
     });
-    
+
     breadcrumbPath.innerHTML = html;
 }
 
 // Pesquisar arquivos
 function handleSearch(e) {
     const query = e.target.value.toLowerCase();
-    
+
     if (!query) {
         filteredFiles = currentFiles;
     } else {
-        filteredFiles = currentFiles.filter(file => 
+        filteredFiles = currentFiles.filter(file =>
             file.name.toLowerCase().includes(query)
         );
     }
-    
+
     renderFiles(filteredFiles);
 }
 
 // Download de arquivo
 async function downloadFile(fileKey, fileName) {
     showProgressModal();
-    
+
     try {
         const result = await window.electronAPI.downloadFile(fileKey, fileName);
-        
+
         if (result.success) {
             showNotification(`Arquivo baixado: ${result.path}`, 'success');
         } else {
@@ -497,7 +684,7 @@ function showLinkModal(fileKey) {
 // Gerar link do arquivo
 async function generateLink(type) {
     if (!selectedFileKey) return;
-    
+
     try {
         const url = await window.electronAPI.generateSignedLink(selectedFileKey, 3600);
         generatedLink.value = url;
@@ -512,7 +699,7 @@ async function generateLink(type) {
 async function copyLink() {
     const link = generatedLink.value;
     if (!link) return;
-    
+
     try {
         await window.electronAPI.copyToClipboard(link);
         showNotification('Link copiado para a área de transferência!', 'success');
@@ -557,6 +744,8 @@ function closeModals() {
     linkModal.classList.remove('active');
     shareModal.classList.remove('active');
     configModal.classList.remove('active');
+    const cancelConfirmModal = document.getElementById('cancel-confirm-modal');
+    if (cancelConfirmModal) cancelConfirmModal.classList.remove('active');
 }
 
 // Configurar eventos dos itens de configuração
@@ -570,7 +759,7 @@ function setupConfigItemEvents() {
             showMainScreen();
         });
     });
-    
+
     // Botões de compartilhar
     document.querySelectorAll('.btn-share').forEach(btn => {
         btn.addEventListener('click', (e) => {
@@ -579,7 +768,7 @@ function setupConfigItemEvents() {
             showShareModal(configId);
         });
     });
-    
+
     // Botões de editar
     document.querySelectorAll('.btn-edit').forEach(btn => {
         btn.addEventListener('click', (e) => {
@@ -588,7 +777,7 @@ function setupConfigItemEvents() {
             editConfig(configId);
         });
     });
-    
+
     // Botões de excluir
     document.querySelectorAll('.btn-delete').forEach(btn => {
         btn.addEventListener('click', async (e) => {
@@ -608,23 +797,23 @@ async function connectToBucket(configId) {
         showNotification(`Conectado ao bucket: ${currentConfig.name}`, 'success');
         return;
     }
-    
+
     const config = savedConfigs.find(c => c.id === configId);
     if (!config) return;
-    
+
     try {
         const result = await window.electronAPI.saveS3Config(config);
         if (result.success) {
             currentConfig = config;
-            
+
             // Marcar como último usado
             savedConfigs.forEach(c => c.lastUsed = null);
             config.lastUsed = new Date().toISOString();
             await window.electronAPI.saveS3Configs(savedConfigs);
-            
+
             // Atualizar seletor
             bucketSelect.value = configId;
-            
+
             await loadFiles();
             showNotification(`Conectado ao bucket: ${config.name}`, 'success');
         } else {
@@ -648,10 +837,10 @@ async function handleBucketChange(e) {
 function showNewConfigModal() {
     editingConfigId = null;
     fillConfigForm();
-    
+
     configModalTitle.textContent = 'Nova Configuração';
     saveBtnText.textContent = 'Salvar e Conectar';
-    
+
     configModal.classList.add('active');
 }
 
@@ -666,13 +855,13 @@ function hideConfigModal() {
 function editConfig(configId) {
     const config = savedConfigs.find(c => c.id === configId);
     if (!config) return;
-    
+
     editingConfigId = configId;
     fillConfigForm(config);
-    
+
     configModalTitle.textContent = 'Editar Configuração';
     saveBtnText.textContent = 'Atualizar';
-    
+
     configModal.classList.add('active');
 }
 
@@ -680,21 +869,21 @@ function editConfig(configId) {
 async function deleteConfig(configId) {
     const config = savedConfigs.find(c => c.id === configId);
     if (!config) return;
-    
+
     if (confirm(`Tem certeza que deseja excluir a configuração "${config.name}"?`)) {
         savedConfigs = savedConfigs.filter(c => c.id !== configId);
         await window.electronAPI.saveS3Configs(savedConfigs);
-        
+
         renderConfigList();
         populateBucketSelect();
-        
+
         // Se estava conectado neste bucket, desconectar
         if (currentConfig && currentConfig.id === configId) {
             currentConfig = null;
             bucketSelect.value = '';
             showEmptyState('Selecione um bucket para visualizar os arquivos');
         }
-        
+
         showNotification('Configuração excluída com sucesso!', 'success');
     }
 }
@@ -742,43 +931,43 @@ async function handleConnectShared() {
         showNotification('Digite um token para conectar', 'error');
         return;
     }
-    
+
     try {
         showStatus('Decodificando token...', 'info');
-        
+
         const result = await window.electronAPI.decodeShareToken(token);
         if (!result.success) {
             throw new Error(result.error);
         }
-        
+
         showStatus('Testando conexão...', 'info');
-        
+
         const testResult = await window.electronAPI.testSharedConnection(result.config);
         if (!testResult.success) {
             throw new Error(testResult.error);
         }
-        
+
         showStatus('Conectando...', 'info');
-        
+
         const connectResult = await window.electronAPI.connectSharedBucket(result.config);
         if (!connectResult.success) {
             throw new Error(connectResult.error);
         }
-        
+
         // Configuração compartilhada conectada com sucesso
         currentConfig = result.config;
         shareTokenInput.value = '';
-        
+
         showStatus('Conectado ao bucket compartilhado!', 'success');
-        
+
         // Atualizar lista de buckets para incluir o compartilhado
         populateBucketSelect();
-        
+
         setTimeout(() => {
             showMainScreen();
             loadFiles();
         }, 1000);
-        
+
     } catch (error) {
         console.error('Erro ao conectar via token:', error);
         showStatus('Erro: ' + error.message, 'error');
@@ -789,7 +978,7 @@ async function handleConnectShared() {
 function showShareModal(configId) {
     const config = savedConfigs.find(c => c.id === configId);
     if (!config) return;
-    
+
     sharingConfigId = configId;
     shareConfigName.textContent = config.name;
     shareResult.classList.remove('active');
@@ -800,16 +989,16 @@ function showShareModal(configId) {
 // Gerar token de compartilhamento
 async function handleGenerateToken() {
     if (!sharingConfigId) return;
-    
+
     try {
         const result = await window.electronAPI.generateShareToken(sharingConfigId, savedConfigs);
         if (!result.success) {
             throw new Error(result.error);
         }
-        
+
         shareToken.value = result.token;
         shareResult.classList.add('active');
-        
+
         showNotification('Token gerado com sucesso!', 'success');
     } catch (error) {
         console.error('Erro ao gerar token:', error);
@@ -821,7 +1010,7 @@ async function handleGenerateToken() {
 async function copyShareToken() {
     const token = shareToken.value;
     if (!token) return;
-    
+
     try {
         await window.electronAPI.copyToClipboard(token);
         showNotification('Token copiado!', 'success');
@@ -835,7 +1024,7 @@ async function copyShareToken() {
 async function copyShareInstructions() {
     const token = shareToken.value;
     if (!token) return;
-    
+
     const config = savedConfigs.find(c => c.id === sharingConfigId);
     const instructions = `🔗 WASABI VIEWER - ACESSO COMPARTILHADO
 
@@ -857,7 +1046,7 @@ ${token}
 • O token não expira, mas pode ser revogado pelo proprietário
 
 Desenvolvido com ❤️ usando Electron`;
-    
+
     try {
         await window.electronAPI.copyToClipboard(instructions);
         showNotification('Instruções copiadas!', 'success');
@@ -870,21 +1059,21 @@ Desenvolvido com ❤️ usando Electron`;
 // Mostrar notificação
 function showNotification(message, type = 'info') {
     const notifications = document.getElementById('notifications');
-    
+
     const notification = document.createElement('div');
     notification.className = `notification ${type}`;
-    
-    const icon = type === 'success' ? 'fa-check-circle' : 
-                 type === 'error' ? 'fa-exclamation-circle' : 
-                 'fa-info-circle';
-    
+
+    const icon = type === 'success' ? 'fa-check-circle' :
+        type === 'error' ? 'fa-exclamation-circle' :
+            'fa-info-circle';
+
     notification.innerHTML = `
         <i class="fas ${icon}"></i>
         <span>${message}</span>
     `;
-    
+
     notifications.appendChild(notification);
-    
+
     // Remover após 5 segundos
     setTimeout(() => {
         notification.remove();

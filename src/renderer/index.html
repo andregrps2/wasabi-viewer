@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,6 +8,7 @@
     <link rel="stylesheet" href="styles.css">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
 </head>
+
 <body>
     <!-- Tela de Configuração -->
     <div id="config-screen" class="screen active">
@@ -26,7 +28,7 @@
                     </div>
                 </div>
             </div>
-            
+
             <!-- Seção de Token Compartilhado -->
             <div class="share-section">
                 <h3>Conectar via Token Compartilhado</h3>
@@ -41,13 +43,13 @@
             <div class="divider">
                 <span>OU</span>
             </div>
-            
+
             <div class="new-config-section">
                 <button id="new-config-btn" class="btn btn-primary">
                     <i class="fas fa-plus"></i> Nova Configuração
                 </button>
             </div>
-            
+
             <div id="config-status" class="status-message"></div>
         </div>
     </div>
@@ -65,27 +67,27 @@
                         <label for="accessKey">Access Key:</label>
                         <input type="text" id="accessKey" required>
                     </div>
-                    
+
                     <div class="form-group">
                         <label for="secretKey">Secret Key:</label>
                         <input type="password" id="secretKey" required>
                     </div>
-                    
+
                     <div class="form-group">
                         <label for="configName">Nome da Configuração:</label>
                         <input type="text" id="configName" placeholder="ex: Bucket Principal" required>
                     </div>
-                    
+
                     <div class="form-group">
                         <label for="bucket">Bucket:</label>
                         <input type="text" id="bucket" required>
                     </div>
-                    
+
                     <div class="form-group">
                         <label for="prefix">Prefix (opcional):</label>
                         <input type="text" id="prefix" placeholder="ex: uploads/">
                     </div>
-                    
+
                     <div class="form-row">
                         <div class="form-group">
                             <label for="region">Região:</label>
@@ -96,13 +98,13 @@
                                 <option value="ap-northeast-1">ap-northeast-1</option>
                             </select>
                         </div>
-                        
+
                         <div class="form-group">
                             <label for="endpoint">Endpoint:</label>
                             <input type="url" id="endpoint" value="https://s3.wasabisys.com" required>
                         </div>
                     </div>
-                    
+
                     <div class="form-actions">
                         <button type="submit" class="btn btn-primary">
                             <i class="fas fa-save"></i> <span id="save-btn-text">Salvar e Conectar</span>
@@ -130,17 +132,17 @@
                     <i class="fas fa-cog"></i> Configurações
                 </button>
             </div>
-            
+
             <div class="header-right">
                 <div class="search-container">
                     <input type="text" id="search-input" placeholder="Pesquisar arquivos...">
                     <i class="fas fa-search"></i>
                 </div>
-                
+
                 <button id="theme-toggle" class="btn btn-secondary theme-toggle" title="Alternar Tema">
                     <i class="fas fa-moon"></i>
                 </button>
-                
+
                 <button id="refresh-btn" class="btn btn-primary">
                     <i class="fas fa-sync-alt"></i> Atualizar
                 </button>
@@ -171,7 +173,7 @@
                         <i class="fas fa-tools"></i> Ações
                     </div>
                 </div>
-                
+
                 <div id="file-list" class="file-list">
                     <div class="loading">
                         <i class="fas fa-spinner fa-spin"></i>
@@ -189,6 +191,31 @@
                     <div id="progress-fill" class="progress-fill"></div>
                 </div>
                 <p id="progress-text">Preparando download...</p>
+                <div class="progress-meta" style="margin-top:6px; gap:10px;">
+                    <span id="progress-size">0 B / 0 B</span>
+                    <span id="progress-eta">—</span>
+                </div>
+                <div style="text-align:center;margin-top:12px;">
+                    <button id="cancel-download-btn" class="btn btn-danger">Cancelar Download</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal de Confirmação de Cancelamento -->
+        <div id="cancel-confirm-modal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Cancelar Download</h3>
+                    <button class="modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p>Tem certeza que deseja cancelar o download em andamento? Isso interromperá o download atual.</p>
+                    <div class="confirm-actions"
+                        style="margin-top:16px; display:flex; gap:10px; justify-content:center;">
+                        <button id="cancel-confirm-yes" class="btn btn-danger">Sim, cancelar</button>
+                        <button id="cancel-confirm-no" class="btn btn-secondary">Manter</button>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -207,13 +234,13 @@
                             Este token contém credenciais de acesso. Compartilhe apenas com pessoas confiáveis.
                         </p>
                     </div>
-                    
+
                     <div class="share-actions">
                         <button id="generate-token-btn" class="btn btn-primary">
                             <i class="fas fa-share"></i> Gerar Token de Compartilhamento
                         </button>
                     </div>
-                    
+
                     <div id="share-result" class="share-result">
                         <label>Token de Compartilhamento:</label>
                         <textarea id="share-token" readonly></textarea>
@@ -259,4 +286,5 @@
 
     <script src="renderer.js"></script>
 </body>
+
 </html>
