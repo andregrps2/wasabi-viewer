@@ -1,8 +1,9 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const os = require('os');
 const path = require('path');
+const fs = require('fs');
 const { S3Client, ListObjectsV2Command, GetObjectCommand } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
-const fs = require('fs');
 const { pipeline } = require('stream/promises');
 const CryptoJS = require('crypto-js');
 
@@ -213,22 +214,25 @@ ipcMain.handle('list-s3-objects', async (event, prefix = '') => {
 });
 
 // Baixar arquivo com suporte a eventos de progresso e cancelamento
-ipcMain.handle('download-file', async (event, fileKey, fileName) => {
+ipcMain.handle('download-file', async (event, fileKey, fileName, savePath) => {
   if (!s3Client || !s3Config) {
     throw new Error('S3 não configurado');
   }
 
   try {
-    // Abrir diálogo para escolher pasta de destino
-    const result = await dialog.showSaveDialog(mainWindow, {
-      defaultPath: fileName,
-      filters: [
-        { name: 'Todos os arquivos', extensions: ['*'] }
-      ]
-    });
-
-    if (result.canceled) {
-      return { success: false, message: 'Download cancelado' };
+    let finalPath = savePath;
+    if (!finalPath) {
+      // Fallback para diálogo nativo se savePath não for fornecido
+      const result = await dialog.showSaveDialog(mainWindow, {
+        defaultPath: fileName,
+        filters: [
+          { name: 'Todos os arquivos', extensions: ['*'] }
+        ]
+      });
+      if (result.canceled) {
+        return { success: false, message: 'Download cancelado' };
+      }
+      finalPath = result.filePath;
     }
 
     const command = new GetObjectCommand({
@@ -237,7 +241,7 @@ ipcMain.handle('download-file', async (event, fileKey, fileName) => {
     });
 
     const response = await s3Client.send(command);
-    const writeStream = fs.createWriteStream(result.filePath);
+    const writeStream = fs.createWriteStream(finalPath);
 
     const totalBytes = response.ContentLength || null;
     let downloadedBytes = 0;
@@ -288,7 +292,7 @@ ipcMain.handle('download-file', async (event, fileKey, fileName) => {
     }
 
     currentDownloadController = null;
-    return { success: true, path: result.filePath };
+    return { success: true, path: finalPath };
   } catch (error) {
     console.error('Erro ao baixar arquivo:', error);
     currentDownloadController = null;
@@ -305,6 +309,30 @@ ipcMain.handle('cancel-download', () => {
       console.error('Erro ao abortar download:', err);
     }
     currentDownloadController = null;
+  }
+});
+
+// Listar diretórios locais para modal customizado
+ipcMain.handle('fs-home-dir', async () => {
+  try {
+    return os.homedir();
+  } catch (e) {
+    return process.cwd();
+  }
+});
+
+ipcMain.handle('fs-list-dir', async (event, dirPath) => {
+  try {
+    const base = dirPath && dirPath.trim() ? dirPath : os.homedir();
+    const entries = await fs.promises.readdir(base, { withFileTypes: true });
+    const dirs = entries
+      .filter(d => d.isDirectory())
+      .map(d => ({ name: d.name, path: path.join(base, d.name), type: 'folder' }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+    return { base, entries: dirs };
+  } catch (e) {
+    console.error('Erro ao listar diretório:', e);
+    return { base: dirPath || '', entries: [], error: e.message };
   }
 });
 

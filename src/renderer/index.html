@@ -15,7 +15,17 @@
         <div class="config-container">
             <div class="config-header">
                 <h1><i class="fas fa-cloud"></i> Wasabi Viewer</h1>
-                <p>Gerenciar conexões com múltiplos buckets Wasabi S3</p>
+                <p>Gerencie conexões com seus buckets Wasabi S3</p>
+            </div>
+
+            <!-- Menu de Ações -->
+            <div class="menu-actions">
+                <button id="new-config-btn" class="btn btn-primary">
+                    <i class="fas fa-plus"></i> Nova Configuração
+                </button>
+                <button id="open-saved-configs-btn" class="btn btn-secondary">
+                    <i class="fas fa-list"></i> Buckets Salvos
+                </button>
             </div>
 
             <!-- Lista de Buckets Salvos -->
@@ -30,7 +40,7 @@
             </div>
 
             <!-- Seção de Token Compartilhado -->
-            <div class="share-section">
+            <div class="share-section card">
                 <h3>Conectar via Token Compartilhado</h3>
                 <div class="share-token-input">
                     <input type="text" id="share-token-input" placeholder="Cole o token compartilhado aqui...">
@@ -38,16 +48,6 @@
                         <i class="fas fa-key"></i> Conectar
                     </button>
                 </div>
-            </div>
-
-            <div class="divider">
-                <span>OU</span>
-            </div>
-
-            <div class="new-config-section">
-                <button id="new-config-btn" class="btn btn-primary">
-                    <i class="fas fa-plus"></i> Nova Configuração
-                </button>
             </div>
 
             <div id="config-status" class="status-message"></div>
@@ -128,8 +128,8 @@
                         <option value="">Selecione um bucket...</option>
                     </select>
                 </div>
-                <button id="config-btn" class="btn btn-secondary">
-                    <i class="fas fa-cog"></i> Configurações
+                <button id="config-btn" class="btn btn-secondary" title="Início">
+                    <i class="fas fa-home"></i> Início
                 </button>
             </div>
 
@@ -160,14 +160,14 @@
             <!-- Lista de arquivos -->
             <div class="file-list-container">
                 <div class="file-list-header">
-                    <div class="column-header name-column">
-                        <i class="fas fa-file"></i> Nome
+                    <div class="column-header name-column sortable" data-sort="name">
+                        <i class="fas fa-file"></i> Nome <i class="fas fa-sort sort-icon"></i>
                     </div>
-                    <div class="column-header size-column">
-                        <i class="fas fa-weight-hanging"></i> Tamanho
+                    <div class="column-header size-column sortable" data-sort="size">
+                        <i class="fas fa-weight-hanging"></i> Tamanho <i class="fas fa-sort sort-icon"></i>
                     </div>
-                    <div class="column-header date-column">
-                        <i class="fas fa-calendar"></i> Modificado
+                    <div class="column-header date-column sortable" data-sort="date">
+                        <i class="fas fa-calendar"></i> Modificado <i class="fas fa-sort sort-icon"></i>
                     </div>
                     <div class="column-header actions-column">
                         <i class="fas fa-tools"></i> Ações
@@ -189,6 +189,7 @@
                 <h3>Download em andamento...</h3>
                 <div class="progress-bar">
                     <div id="progress-fill" class="progress-fill"></div>
+                    <span id="progress-percent" class="progress-label">0%</span>
                 </div>
                 <p id="progress-text">Preparando download...</p>
                 <div class="progress-meta" style="margin-top:6px; gap:10px;">
@@ -201,6 +202,29 @@
             </div>
         </div>
 
+        <!-- Modal de Salvar Arquivo -->
+        <div id="save-modal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Salvar arquivo</h3>
+                    <button class="modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="breadcrumb" id="save-breadcrumb"></div>
+                    <div id="save-dir-list" class="file-list" style="height: 260px; overflow-y:auto; border:1px solid var(--border-light); border-radius:8px;">
+                        <!-- diretórios serão listados aqui -->
+                    </div>
+                    <div class="form-row" style="margin-top:12px;">
+                        <label for="save-file-name">Nome do arquivo</label>
+                        <input id="save-file-name" type="text" placeholder="nome.ext" />
+                    </div>
+                    <div class="form-actions" style="justify-content:center; margin-top:14px;">
+                        <button id="save-confirm-btn" class="btn btn-primary">Salvar aqui</button>
+                        <button id="save-cancel-btn" class="btn btn-secondary">Cancelar</button>
+                    </div>
+                </div>
+            </div>
+        </div>
         <!-- Modal de Confirmação de Cancelamento -->
         <div id="cancel-confirm-modal" class="modal">
             <div class="modal-content">

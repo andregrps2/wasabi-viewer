@@ -9,7 +9,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Operações S3
   listS3Objects: (prefix) => ipcRenderer.invoke('list-s3-objects', prefix),
-  downloadFile: (fileKey, fileName) => ipcRenderer.invoke('download-file', fileKey, fileName),
+  downloadFile: (fileKey, fileName, savePath) => ipcRenderer.invoke('download-file', fileKey, fileName, savePath),
   generateSignedLink: (fileKey, expiresIn) => ipcRenderer.invoke('generate-signed-link', fileKey, expiresIn),
   cancelDownload: () => ipcRenderer.invoke('cancel-download'),
 
@@ -30,5 +30,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   removeDownloadProgressListener: () => {
     ipcRenderer.removeAllListeners('download-progress');
-  }
+  },
+  // FS helpers para modal customizado
+  getHomeDir: () => ipcRenderer.invoke('fs-home-dir'),
+  listDir: (dirPath) => ipcRenderer.invoke('fs-list-dir', dirPath)
 });

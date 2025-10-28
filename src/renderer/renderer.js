@@ -7,9 +7,17 @@ let savedConfigs = [];
 let currentConfig = null;
 let editingConfigId = null;
 let sharingConfigId = null;
+
+// Estado de ordenação
+let sortState = {
+    column: 'date', // 'name', 'size', 'date'
+    direction: 'desc' // 'asc', 'desc'
+};
 // Variables to compute download speed and ETA
 let _downloadLastSample = null; // { time: ms, bytes: number }
 let _downloadSpeedBps = null; // smoothed bytes/sec
+let _etaLastUpdateAt = 0; // last ETA label update timestamp
+let _downloadCancelledFlag = false; // track if user cancelled to avoid duplicate messages
 
 // Elementos DOM
 const configScreen = document.getElementById('config-screen');
@@ -24,6 +32,7 @@ const configBtn = document.getElementById('config-btn');
 const bucketSelect = document.getElementById('bucket-select');
 const configList = document.getElementById('config-list');
 const newConfigBtn = document.getElementById('new-config-btn');
+const openSavedConfigsBtn = document.getElementById('open-saved-configs-btn');
 const themeToggle = document.getElementById('theme-toggle');
 
 // Modal de configuração
@@ -48,6 +57,17 @@ const progressModal = document.getElementById('progress-modal');
 const linkModal = document.getElementById('link-modal');
 const linkResult = document.querySelector('.link-result');
 const generatedLink = document.getElementById('generated-link');
+// Modal de salvar arquivo
+const saveModal = document.getElementById('save-modal');
+const saveBreadcrumb = document.getElementById('save-breadcrumb');
+const saveDirList = document.getElementById('save-dir-list');
+const saveFileNameInput = document.getElementById('save-file-name');
+const saveConfirmBtn = document.getElementById('save-confirm-btn');
+const saveCancelBtn = document.getElementById('save-cancel-btn');
+
+// Estado do modal de salvar
+let saveCurrentDir = '';
+let pendingDownload = { key: null, name: null };
 
 // Inicialização
 document.addEventListener('DOMContentLoaded', async () => {
@@ -75,6 +95,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const fill = document.getElementById('progress-fill');
                 const text = document.getElementById('progress-text');
                 const sizeText = document.getElementById('progress-size');
+                const percentLabel = document.getElementById('progress-percent');
                 // Mostrar modal de progresso
                 progressModal.classList.add('active');
                 // If we have total bytes, compute an accurate percentage.
@@ -86,7 +107,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                     const percentDisplay = Math.round(percent);
                     fill.classList.remove('indeterminate');
                     fill.style.width = `${percent}%`;
-                    text.textContent = `Progresso: ${percentDisplay}%`;
+                    if (percentLabel) percentLabel.textContent = `${percentDisplay}%`;
+                    text.textContent = `Baixando...`;
                     sizeText.textContent = `${formatFileSize(downloaded)} / ${formatFileSize(total)}`;
 
                     // ETA calculation
@@ -108,12 +130,17 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                         if (_downloadSpeedBps && _downloadSpeedBps > 0 && total > downloaded) {
                             const remainingSec = (total - downloaded) / _downloadSpeedBps;
-                            document.getElementById('progress-eta').textContent = `Estimado: ${formatTimeRemaining(remainingSec)}`;
+                            const etaEl = document.getElementById('progress-eta');
+                            const now2 = Date.now();
+                            if (!_etaLastUpdateAt || (now2 - _etaLastUpdateAt) >= 800) {
+                                etaEl.textContent = `Tempo estimado: ${formatTimeRemaining(remainingSec)}`;
+                                _etaLastUpdateAt = now2;
+                            }
                         } else {
-                            document.getElementById('progress-eta').textContent = `—`;
+                            document.getElementById('progress-eta').textContent = `Tempo estimado: —`;
                         }
                     } catch (e) {
-                        document.getElementById('progress-eta').textContent = `—`;
+                        document.getElementById('progress-eta').textContent = `Tempo estimado: —`;
                     }
 
                     if (percent >= 100) {
@@ -122,6 +149,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                             closeModals();
                             _downloadLastSample = null;
                             _downloadSpeedBps = null;
+                            _etaLastUpdateAt = 0;
                         }, 1200);
                     }
                 } else if (data && (data.percent !== null && data.percent !== undefined)) {
@@ -150,7 +178,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                             }
                         }
                         _downloadLastSample = { time: now, bytes: downloaded };
-                        document.getElementById('progress-eta').textContent = `—`;
+                        document.getElementById('progress-eta').textContent = `Tempo estimado: —`;
                     }
 
                     if (percent >= 100) {
@@ -159,6 +187,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                             closeModals();
                             _downloadLastSample = null;
                             _downloadSpeedBps = null;
+                            _etaLastUpdateAt = 0;
                         }, 1200);
                     }
                 } else if (data && data.downloadedBytes) {
@@ -183,11 +212,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                         }
                     }
                     _downloadLastSample = { time: now, bytes: downloaded };
-                    document.getElementById('progress-eta').textContent = `—`;
+                    document.getElementById('progress-eta').textContent = `Tempo estimado: —`;
                 }
 
                 if (data && data.cancelled) {
-                    text.textContent = 'Download cancelado';
+                    text.textContent = 'Download cancelado pelo usuario';
+                    showNotification('Download cancelado pelo usuario', 'info');
+                    _downloadCancelledFlag = true;
                     setTimeout(() => closeModals(), 1200);
                 }
             } catch (err) {
@@ -210,7 +241,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 // fallback: enviar cancel direto
                 if (window.electronAPI && typeof window.electronAPI.cancelDownload === 'function') {
                     window.electronAPI.cancelDownload();
-                    showNotification('Solicitado cancelamento do download', 'info');
                 }
             }
         });
@@ -223,7 +253,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (window.electronAPI && typeof window.electronAPI.cancelDownload === 'function') {
                     await window.electronAPI.cancelDownload();
                 }
-                showNotification('Download cancelado', 'info');
             } catch (err) {
                 console.error('Erro ao cancelar download:', err);
                 showNotification('Erro ao cancelar download', 'error');
@@ -344,10 +373,20 @@ function setupEventListeners() {
     configForm.addEventListener('submit', handleConfigSubmit);
 
     // Botões da interface
-    refreshBtn.addEventListener('click', () => loadFiles());
+    // Atualizar mantendo a pasta atual
+    refreshBtn.addEventListener('click', () => loadFiles(currentPath || ''));
     configBtn.addEventListener('click', showConfigScreen);
     bucketSelect.addEventListener('change', handleBucketChange);
     newConfigBtn.addEventListener('click', showNewConfigModal);
+    if (openSavedConfigsBtn) {
+        openSavedConfigsBtn.addEventListener('click', () => {
+            const sec = document.getElementById('saved-configs');
+            if (sec && typeof sec.scrollIntoView === 'function') {
+                try { sec.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+                catch (_) { sec.scrollIntoView(); }
+            }
+        });
+    }
     cancelModalBtn.addEventListener('click', hideConfigModal);
     themeToggle.addEventListener('click', toggleTheme);
 
@@ -359,6 +398,9 @@ function setupEventListeners() {
 
     // Pesquisa
     searchInput.addEventListener('input', handleSearch);
+
+    // Ordenação por colunas
+    setupSortListeners();
 
     // Modals
     setupModalEvents();
@@ -376,6 +418,44 @@ function setupModalEvents() {
     // Botões de link
     document.getElementById('signed-link-btn').addEventListener('click', () => generateLink('signed'));
     document.getElementById('copy-link-btn').addEventListener('click', copyLink);
+
+    // Modal de salvar arquivo
+    if (saveCancelBtn) {
+        saveCancelBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            closeModals();
+        });
+    }
+    if (saveConfirmBtn) {
+        saveConfirmBtn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            if (!pendingDownload.key || !pendingDownload.name || !saveCurrentDir) return;
+            const name = (saveFileNameInput?.value || pendingDownload.name).trim();
+            if (!name) return;
+            const finalPath = joinPaths(saveCurrentDir, name);
+            closeModals();
+            await performDownload(pendingDownload.key, pendingDownload.name, finalPath);
+            pendingDownload = { key: null, name: null };
+        });
+    }
+    if (saveBreadcrumb) {
+        saveBreadcrumb.addEventListener('click', (e) => {
+            const target = e.target;
+            if (target.classList.contains('crumb') && target.dataset && target.dataset.path) {
+                e.preventDefault();
+                loadSaveDir(target.dataset.path);
+            }
+        });
+    }
+    if (saveDirList) {
+        saveDirList.addEventListener('click', (e) => {
+            const item = e.target.closest('.list-item');
+            if (item && item.dataset && item.dataset.path) {
+                e.preventDefault();
+                loadSaveDir(item.dataset.path);
+            }
+        });
+    }
 }
 
 // Manipular submissão do formulário de configuração
@@ -472,11 +552,16 @@ async function loadFiles(path = '') {
         console.log('Chamando listS3Objects...');
         const files = await window.electronAPI.listS3Objects(path);
         console.log('Arquivos carregados:', files.length);
-        currentFiles = files;
-        filteredFiles = files;
+
+        // Aplicar ordenação baseada no estado atual
+        const sortedFiles = sortFilesByColumn(files, sortState.column, sortState.direction);
+
+        currentFiles = sortedFiles;
+        filteredFiles = sortedFiles;
 
         renderFiles(filteredFiles);
         updateBreadcrumb(path);
+        updateSortIndicators();
         console.log('Carregamento concluído com sucesso');
     } catch (error) {
         console.error('Erro ao carregar arquivos:', error);
@@ -485,6 +570,146 @@ async function loadFiles(path = '') {
     } finally {
         showLoading(false);
     }
+}
+
+// Ordenar lista com pastas primeiro e arquivos por última modificação (desc)
+function sortFilesDefault(files) {
+    const folders = [];
+    const regularFiles = [];
+
+    for (const f of files) {
+        if (f.type === 'folder') {
+            folders.push(f);
+        } else {
+            regularFiles.push(f);
+        }
+    }
+
+    folders.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR'));
+    regularFiles.sort((a, b) => {
+        const da = a.lastModified ? new Date(a.lastModified).getTime() : 0;
+        const db = b.lastModified ? new Date(b.lastModified).getTime() : 0;
+        return db - da; // mais recente primeiro
+    });
+
+    return [...folders, ...regularFiles];
+}
+
+// Funções de ordenação por coluna
+function sortFilesByColumn(files, column, direction) {
+    const folders = [];
+    const regularFiles = [];
+
+    // Separar pastas de arquivos
+    for (const f of files) {
+        if (f.type === 'folder') {
+            folders.push(f);
+        } else {
+            regularFiles.push(f);
+        }
+    }
+
+    // Função de comparação baseada na coluna
+    const getComparator = (col, dir) => {
+        const multiplier = dir === 'asc' ? 1 : -1;
+        
+        switch (col) {
+            case 'name':
+                return (a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR') * multiplier;
+            
+            case 'size':
+                return (a, b) => {
+                    const sizeA = a.size || 0;
+                    const sizeB = b.size || 0;
+                    return (sizeA - sizeB) * multiplier;
+                };
+            
+            case 'date':
+                return (a, b) => {
+                    const dateA = a.lastModified ? new Date(a.lastModified).getTime() : 0;
+                    const dateB = b.lastModified ? new Date(b.lastModified).getTime() : 0;
+                    return (dateA - dateB) * multiplier;
+                };
+            
+            default:
+                return (a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR') * multiplier;
+        }
+    };
+
+    // Ordenar pastas e arquivos separadamente
+    const comparator = getComparator(column, direction);
+    folders.sort(comparator);
+    regularFiles.sort(comparator);
+
+    // Retornar pastas primeiro, depois arquivos
+    return [...folders, ...regularFiles];
+}
+
+// Alternar ordenação de uma coluna
+function toggleSort(column) {
+    if (sortState.column === column) {
+        // Mesma coluna: alternar direção
+        sortState.direction = sortState.direction === 'asc' ? 'desc' : 'asc';
+    } else {
+        // Nova coluna: começar com ascendente
+        sortState.column = column;
+        sortState.direction = 'asc';
+    }
+
+    // Aplicar ordenação aos arquivos atuais
+    const sortedFiles = sortFilesByColumn(currentFiles, sortState.column, sortState.direction);
+    
+    // Aplicar filtro de busca se houver
+    if (searchInput.value.trim()) {
+        const searchTerm = searchInput.value.toLowerCase();
+        filteredFiles = sortedFiles.filter(file =>
+            file.name.toLowerCase().includes(searchTerm)
+        );
+    } else {
+        filteredFiles = sortedFiles;
+    }
+
+    renderFiles(filteredFiles);
+    updateSortIndicators();
+}
+
+// Configurar event listeners para ordenação
+function setupSortListeners() {
+    const sortableHeaders = document.querySelectorAll('.column-header.sortable');
+    sortableHeaders.forEach(header => {
+        header.addEventListener('click', () => {
+            const column = header.getAttribute('data-sort');
+            toggleSort(column);
+        });
+    });
+}
+
+// Atualizar indicadores visuais de ordenação
+function updateSortIndicators() {
+    const sortableHeaders = document.querySelectorAll('.column-header.sortable');
+    
+    sortableHeaders.forEach(header => {
+        const column = header.getAttribute('data-sort');
+        const sortIcon = header.querySelector('.sort-icon');
+        
+        // Remover classes de estado ativo
+        header.classList.remove('sort-active');
+        
+        if (column === sortState.column) {
+            // Coluna ativa
+            header.classList.add('sort-active');
+            
+            // Atualizar ícone baseado na direção
+            if (sortState.direction === 'asc') {
+                sortIcon.className = 'fas fa-sort-up sort-icon';
+            } else {
+                sortIcon.className = 'fas fa-sort-down sort-icon';
+            }
+        } else {
+            // Coluna inativa
+            sortIcon.className = 'fas fa-sort sort-icon';
+        }
+    });
 }
 
 // Renderizar lista de arquivos
@@ -642,10 +867,13 @@ function updateBreadcrumb(path) {
 function handleSearch(e) {
     const query = e.target.value.toLowerCase();
 
+    // Aplicar ordenação atual aos arquivos
+    const sortedFiles = sortFilesByColumn(currentFiles, sortState.column, sortState.direction);
+
     if (!query) {
-        filteredFiles = currentFiles;
+        filteredFiles = sortedFiles;
     } else {
-        filteredFiles = currentFiles.filter(file =>
+        filteredFiles = sortedFiles.filter(file =>
             file.name.toLowerCase().includes(query)
         );
     }
@@ -655,19 +883,102 @@ function handleSearch(e) {
 
 // Download de arquivo
 async function downloadFile(fileKey, fileName) {
-    showProgressModal();
+    // Abrir modal customizado para escolher diretório e nome
+    pendingDownload = { key: fileKey, name: fileName };
+    saveFileNameInput && (saveFileNameInput.value = fileName);
+    await openSaveModal();
+}
 
+async function openSaveModal() {
     try {
-        const result = await window.electronAPI.downloadFile(fileKey, fileName);
+        const home = await window.electronAPI.getHomeDir();
+        saveCurrentDir = home;
+        await loadSaveDir(home);
+        if (saveModal) saveModal.classList.add('active');
+    } catch (e) {
+        console.error('Erro abrindo modal de salvar:', e);
+        showNotification('Não foi possível abrir o modal de salvar', 'error');
+    }
+}
 
+async function loadSaveDir(dirPath) {
+    try {
+        const { base, entries } = await window.electronAPI.listDir(dirPath);
+        saveCurrentDir = base;
+        renderSaveBreadcrumb(base);
+        renderSaveDirEntries(entries);
+    } catch (e) {
+        console.error('Erro listando diretório:', e);
+        showNotification('Erro ao listar diretório: ' + e.message, 'error');
+    }
+}
+
+function renderSaveBreadcrumb(base) {
+    if (!saveBreadcrumb) return;
+    const parts = base.split(/\\\\|\//).filter(Boolean);
+    let crumbs = '';
+    let accum = '';
+    // Windows drive root handling
+    if (parts.length && /^[A-Za-z]:$/.test(parts[0])) {
+        accum = parts[0] + '\\';
+        crumbs += `<span class="crumb" data-path="${accum}">${parts[0]}</span>`;
+        parts.shift();
+    }
+    parts.forEach((p, idx) => {
+        accum = joinPaths(accum || base.startsWith('/') ? '/' : '', p);
+        if (idx > 0 || crumbs) crumbs += '<span class="sep"> / </span>';
+        crumbs += `<span class="crumb" data-path="${accum}">${p}</span>`;
+    });
+    saveBreadcrumb.innerHTML = crumbs || `<span class="crumb" data-path="${base}">${base}</span>`;
+}
+
+function renderSaveDirEntries(entries) {
+    if (!saveDirList) return;
+    if (!entries || !entries.length) {
+        saveDirList.innerHTML = `<div class="empty-state"><i class="fas fa-folder-open"></i><h3>Sem pastas aqui</h3></div>`;
+        return;
+    }
+    const html = entries.map(e => `
+        <div class="list-item" data-path="${e.path}">
+            <i class="fas fa-folder icon-folder"></i>
+            <span>${e.name}</span>
+        </div>
+    `).join('');
+    saveDirList.innerHTML = html;
+}
+
+function joinPaths(a, b) {
+    if (!a) return b;
+    if (!b) return a;
+    const sep = a.includes('\\') ? '\\' : '/';
+    return a.replace(/[\\/]+$/,'') + sep + b.replace(/^[\\/]+/,'');
+}
+
+async function performDownload(fileKey, fileName, savePath) {
+    _downloadCancelledFlag = false;
+    _etaLastUpdateAt = 0;
+    showProgressModal();
+    try {
+        const result = await window.electronAPI.downloadFile(fileKey, fileName, savePath);
         if (result.success) {
             showNotification(`Arquivo baixado: ${result.path}`, 'success');
         } else {
-            showNotification(`Erro no download: ${result.error || result.message}`, 'error');
+            const msg = (result.error || result.message || '').toString().toLowerCase();
+            const isCancel = msg.includes('cancel') || msg.includes('cancelado') || msg.includes('canceled');
+            if (isCancel) {
+                // Cancelamento: mensagem já tratada no evento de progresso; evitar duplicação
+                // Se o progresso não disparar, ainda fecharemos os modais abaixo
+            } else {
+                showNotification(`Erro no download: ${result.error || result.message}`, 'error');
+            }
         }
     } catch (error) {
         console.error('Erro no download:', error);
-        showNotification('Erro no download: ' + error.message, 'error');
+        const emsg = (error && error.message ? error.message : '').toString().toLowerCase();
+        const isCancel = emsg.includes('cancel') || emsg.includes('cancelado') || emsg.includes('canceled');
+        if (!isCancel) {
+            showNotification('Erro no download: ' + (error.message || 'Falha desconhecida'), 'error');
+        }
     } finally {
         closeModals();
     }
@@ -744,6 +1055,7 @@ function closeModals() {
     linkModal.classList.remove('active');
     shareModal.classList.remove('active');
     configModal.classList.remove('active');
+    if (saveModal) saveModal.classList.remove('active');
     const cancelConfirmModal = document.getElementById('cancel-confirm-modal');
     if (cancelConfirmModal) cancelConfirmModal.classList.remove('active');
 }
@@ -1059,6 +1371,10 @@ Desenvolvido com ❤️ usando Electron`;
 // Mostrar notificação
 function showNotification(message, type = 'info') {
     const notifications = document.getElementById('notifications');
+    // Garantir apenas uma notificação visível por vez
+    if (notifications) {
+        notifications.innerHTML = '';
+    }
 
     const notification = document.createElement('div');
     notification.className = `notification ${type}`;
