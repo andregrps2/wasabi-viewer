@@ -12,25 +12,25 @@
     --bg-secondary: #f8f9fa;
     --bg-tertiary: #e9ecef;
     --bg-gradient: linear-gradient(135deg, #dc3545 0%, #6c757d 100%);
-    
+
     --text-primary: #212529;
     --text-secondary: #6c757d;
     --text-muted: #adb5bd;
-    
+
     --border-color: #dee2e6;
     --border-light: #f1f3f4;
-    
-    --accent-primary: #dc3545;
-    --accent-hover: #c82333;
-    --accent-light: rgba(220, 53, 69, 0.1);
-    
+
+    --accent-primary: #0d6efd; /* azul principal */
+    --accent-hover: #2a84ff;   /* azul hover */
+    --accent-light: rgba(13, 110, 253, 0.12);
+
     --success: #28a745;
     --success-bg: #d4edda;
     --error: #dc3545;
     --error-bg: #f8d7da;
     --info: #17a2b8;
     --warning: #ffc107;
-    
+
     --shadow: rgba(0, 0, 0, 0.1);
     --shadow-hover: rgba(0, 0, 0, 0.15);
 }
@@ -41,25 +41,25 @@
     --bg-secondary: #343a40;
     --bg-tertiary: #495057;
     --bg-gradient: linear-gradient(135deg, #dc3545 0%, #000000 100%);
-    
+
     --text-primary: #f8f9fa;
     --text-secondary: #adb5bd;
     --text-muted: #6c757d;
-    
+
     --border-color: #495057;
     --border-light: #343a40;
-    
-    --accent-primary: #dc3545;
-    --accent-hover: #fd7e14;
-    --accent-light: rgba(220, 53, 69, 0.2);
-    
+
+    --accent-primary: #0d6efd; /* azul principal no dark */
+    --accent-hover: #4ea3ff;   /* azul mais claro no hover */
+    --accent-light: rgba(13, 110, 253, 0.22);
+
     --success: #28a745;
     --success-bg: rgba(40, 167, 69, 0.2);
     --error: #dc3545;
     --error-bg: rgba(220, 53, 69, 0.2);
     --info: #17a2b8;
     --warning: #ffc107;
-    
+
     --shadow: rgba(0, 0, 0, 0.3);
     --shadow-hover: rgba(0, 0, 0, 0.5);
 }
@@ -91,6 +91,7 @@ body {
     padding: 20px;
     overflow-y: auto;
     height: 100vh;
+    background: var(--bg-secondary); /* fundo sólido na tela inicial */
 }
 
 #config-screen.active {
@@ -100,22 +101,37 @@ body {
 .config-container {
     background: var(--bg-primary);
     border-radius: 12px;
-    padding: 40px;
-    box-shadow: 0 20px 40px var(--shadow);
+    padding: 32px;
+    box-shadow: 0 8px 20px var(--shadow);
     width: 100%;
-    max-width: 500px;
-    margin: 20px 0;
+    max-width: 640px;
+    margin: 24px 0;
 }
 
 .config-header {
     text-align: center;
-    margin-bottom: 30px;
+    margin-bottom: 20px;
 }
 
 .config-header h1 {
     color: var(--text-primary);
-    font-size: 2.5em;
-    margin-bottom: 10px;
+    font-size: 2.2em;
+    margin-bottom: 6px;
+}
+
+/* Menu de ações da tela inicial */
+.menu-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    margin: 16px 0 20px;
+}
+
+.card {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-light);
+    border-radius: 10px;
+    padding: 16px;
 }
 
 .config-header p {
@@ -579,15 +595,18 @@ body {
 }
 
 [data-theme="dark"] .breadcrumb span {
-    color: #fd7e14; /* Laranja mais claro para melhor contraste */
+    color: var(--accent-hover);
+    /* Azul claro para melhor contraste */
 }
 
 [data-theme="dark"] .breadcrumb a {
-    color: #fd7e14; /* Laranja para os links também */
+    color: var(--accent-hover);
+    /* Azul para os links também */
 }
 
 [data-theme="dark"] .breadcrumb a:hover {
-    color: #ff9500; /* Laranja mais claro no hover */
+    color: var(--accent-primary);
+    /* Azul no hover */
 }
 
 /* Lista de Arquivos */
@@ -613,6 +632,33 @@ body {
     display: flex;
     align-items: center;
     gap: 8px;
+}
+
+.column-header.sortable {
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 0.2s;
+}
+
+.column-header.sortable:hover {
+    background: var(--bg-hover);
+    border-radius: 4px;
+    padding: 4px 8px;
+    margin: -4px -8px;
+}
+
+.sort-icon {
+    opacity: 0.5;
+    font-size: 12px;
+    transition: opacity 0.2s;
+}
+
+.column-header.sortable:hover .sort-icon {
+    opacity: 0.8;
+}
+
+.column-header.sort-active .sort-icon {
+    opacity: 1;
 }
 
 .file-list {
@@ -777,18 +823,80 @@ body {
 /* Progress Bar */
 .progress-bar {
     width: 100%;
-    height: 8px;
-    background: #e9ecef;
-    border-radius: 4px;
+    height: 28px; /* altura confortável */
+    background: var(--bg-secondary); /* track mais claro e flat */
+    border: 1px solid var(--border-light);
+    border-radius: 8px;
     overflow: hidden;
-    margin: 20px 0;
+    margin: 18px 0;
+    position: relative;
 }
 
 .progress-fill {
     height: 100%;
-    background: linear-gradient(90deg, #667eea, #764ba2);
+    /* estilo mais flat usando cor sólida do tema */
+    background: var(--accent-primary);
     width: 0%;
-    transition: width 0.3s;
+    transition: width 0.2s ease;
+    position: absolute;
+    left: 0;
+    top: 0;
+    z-index: 1;
+}
+
+.progress-label {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: #ffffff; /* texto claro por cima do track/fill */
+    font-weight: 600;
+    font-size: 14px;
+    text-shadow: 0 1px 1px rgba(0,0,0,0.25);
+    pointer-events: none;
+    z-index: 2;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: rgba(0,0,0,0.35); /* contraste no tema claro, sem borda */
+}
+
+.progress-fill.indeterminate {
+    width: 30% !important;
+    background-size: 200% 100%;
+    animation: progressStripe 1.2s linear infinite;
+}
+
+@keyframes progressStripe {
+    from {
+        background-position: 200% 0%;
+    }
+
+    to {
+        background-position: -200% 0%;
+    }
+}
+
+.progress-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.95em;
+    color: var(--text-secondary);
+}
+
+#progress-eta {
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+
+/* Ajustes para tema escuro: melhorar contraste do rótulo */
+[data-theme="dark"] .progress-bar {
+    background: var(--bg-secondary);
+}
+
+[data-theme="dark"] .progress-label {
+    background: rgba(255,255,255,0.16); /* sem borda no dark */
+    color: #fff;
 }
 
 /* Notifications */
@@ -801,15 +909,16 @@ body {
 
 .notification {
     background: var(--bg-primary);
-    border-radius: 8px;
-    padding: 15px 20px;
+    border-radius: 6px;
+    padding: 10px 14px; /* smaller padding */
     margin-bottom: 10px;
     box-shadow: 0 4px 12px var(--shadow-hover);
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px; /* smaller gap */
     color: var(--text-primary);
     animation: slideIn 0.3s ease-out;
+    font-size: 13px; /* slightly smaller text */
 }
 
 .notification.success {
@@ -829,6 +938,7 @@ body {
         transform: translateX(100%);
         opacity: 0;
     }
+
     to {
         transform: translateX(0);
         opacity: 1;
@@ -842,22 +952,104 @@ body {
         gap: 15px;
         padding: 15px 20px;
     }
-    
+
     .search-container input {
         width: 200px;
     }
-    
+
     .file-list-header,
     .file-item {
         grid-template-columns: 2fr 80px 60px;
         font-size: 14px;
     }
-    
+
     .file-actions {
         display: none;
     }
-    
+
     .form-row {
         grid-template-columns: 1fr;
     }
+}
+
+/* Ajustes compactos para barra superior em janelas pequenas e padrão enxuto */
+.main-header {
+    padding: 14px 18px;
+}
+
+.header-left { gap: 12px; }
+.header-right { gap: 10px; }
+
+.main-header .btn {
+    padding: 6px 12px;
+    font-size: 13px;
+    border-radius: 6px;
+}
+
+.bucket-select {
+    padding: 6px 12px;
+    font-size: 13px;
+    min-width: 180px;
+}
+
+.header-left h1 { font-size: 1.6em; }
+
+.search-container input {
+    padding: 8px 36px 8px 12px;
+    border-radius: 20px;
+    font-size: 13px;
+    width: 240px;
+}
+
+.theme-toggle {
+    width: 36px;
+    height: 36px;
+}
+
+.main-content {
+    padding: 20px;
+    height: calc(100vh - 80px);
+}
+
+/* Save Modal */
+.breadcrumb {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    padding: 8px 10px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    margin-bottom: 10px;
+    color: var(--text-secondary);
+}
+.breadcrumb .crumb {
+    cursor: pointer;
+    color: var(--brand-500);
+}
+.breadcrumb .sep {
+    color: var(--text-muted);
+}
+
+#save-dir-list .list-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    cursor: pointer;
+}
+#save-dir-list .list-item:hover {
+    background: var(--hover);
+}
+#save-dir-list .icon-folder {
+    width: 18px;
+    height: 18px;
+}
+#save-file-name {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
 }
