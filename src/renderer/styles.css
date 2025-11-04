@@ -642,9 +642,18 @@ body {
     overflow: hidden;
 }
 
+/* Layout consistente das colunas da lista */
+:root {
+    --col-name: 2.4fr;
+    --col-size: 160px;
+    --col-date: 180px;
+    --col-actions: 220px;
+}
+
 .file-list-header {
     display: grid;
-    grid-template-columns: 2fr 1fr 1fr 200px;
+    grid-template-columns: var(--col-name) var(--col-size) var(--col-date) var(--col-actions);
+    column-gap: 16px; /* espaçamento entre colunas */
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border-color);
     padding: 15px 20px;
@@ -692,11 +701,13 @@ body {
 
 .file-item {
     display: grid;
-    grid-template-columns: 2fr 1fr 1fr 200px;
+    grid-template-columns: var(--col-name) var(--col-size) var(--col-date) var(--col-actions);
+    column-gap: 16px; /* espaçamento entre colunas */
     padding: 15px 20px;
     border-bottom: 1px solid var(--border-light);
     cursor: pointer;
     transition: background-color 0.2s;
+    align-items: start; /* manter topo alinhado quando houver quebras */
 }
 
 .file-item:hover {
@@ -712,6 +723,7 @@ body {
     align-items: center;
     gap: 10px;
     color: var(--text-primary);
+    min-width: 0; /* permitir encolhimento e quebra do texto */
 }
 
 .file-icon {
@@ -727,10 +739,18 @@ body {
     color: #6c757d;
 }
 
+.file-name span {
+    white-space: normal; /* permitir quebra automática */
+    overflow-wrap: anywhere; /* quebra mesmo sem espaços longos */
+    word-break: break-word; /* quebra palavras muito grandes */
+    line-height: 1.25;
+}
+
 .file-size,
 .file-date {
     color: var(--text-secondary);
     font-size: 14px;
+    white-space: nowrap; /* manter uma linha para tamanho e data */
 }
 
 .file-actions {
@@ -1106,7 +1126,8 @@ input:checked + .slider:before {
 
     .file-list-header,
     .file-item {
-        grid-template-columns: 2fr 80px 60px;
+        grid-template-columns: 2fr 90px 80px; /* mais espaço nas colunas compactas */
+        column-gap: 12px;
         font-size: 14px;
     }
 
@@ -1126,6 +1147,16 @@ input:checked + .slider:before {
 
 .header-left { gap: 12px; }
 .header-right { gap: 10px; }
+
+/* Setas de navegação (flat) ao lado do breadcrumb */
+.main-content .breadcrumb { display: flex; align-items: center; gap: 8px; }
+.nav-arrows { display: flex; gap: 6px; align-items: center; }
+.nav-arrow-btn { width: 28px; height: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border-color); border-radius: 6px; background: transparent; color: var(--text-primary); }
+.nav-arrow-btn:hover { background: var(--bg-tertiary); }
+.nav-arrow-btn[disabled] { opacity: 0.5; cursor: not-allowed; }
+/* Tema escuro: manter contraste */
+[data-theme="dark"] .nav-arrow-btn { color: var(--text-primary); border-color: var(--border-color); }
+[data-theme="dark"] .nav-arrow-btn:hover { background: var(--bg-secondary); }
 
 .main-header .btn {
     padding: 6px 12px;

@@ -1,5 +1,8 @@
 // Estado da aplicação
 let currentPath = '';
+// Histórico de navegação
+let navHistory = [''];
+let navIndex = 0;
 let currentFiles = [];
 let filteredFiles = [];
 let selectedFileKey = '';
@@ -32,6 +35,9 @@ const configBtn = document.getElementById('config-btn');
 const bucketSelect = document.getElementById('bucket-select');
 const configList = document.getElementById('config-list');
 const newConfigBtn = document.getElementById('new-config-btn');
+// Navegação
+const navBackBtn = document.getElementById('nav-back');
+const navForwardBtn = document.getElementById('nav-forward');
 // Botão e modal de Configurações
 const settingsBtn = document.getElementById('settings-btn');
 const settingsBtnConfig = document.getElementById('settings-btn-config');
@@ -467,6 +473,27 @@ function setupEventListeners() {
 
     // Modals
     setupModalEvents();
+
+    // Navegação por setas (voltar/avançar)
+    if (navBackBtn) {
+        navBackBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            goBack();
+        });
+    }
+    if (navForwardBtn) {
+        navForwardBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            goForward();
+        });
+    }
+    updateNavButtons();
+
+    // Botões laterais do mouse (Windows): 3 = Back, 4 = Forward
+    window.addEventListener('mouseup', (e) => {
+        if (e.button === 3) { e.preventDefault(); goBack(); }
+        if (e.button === 4) { e.preventDefault(); goForward(); }
+    });
 }
 
 // Configurar eventos dos modais
@@ -614,7 +641,7 @@ function showMainScreen() {
 }
 
 // Carregar arquivos do S3
-async function loadFiles(path = '') {
+async function loadFiles(path = '', options = {}) {
     console.log('Iniciando carregamento de arquivos, path:', path);
 
     if (!currentConfig) {
@@ -622,6 +649,7 @@ async function loadFiles(path = '') {
         return;
     }
 
+    const fromHistory = !!options.fromHistory;
     showLoading(true);
     currentPath = path;
 
@@ -639,6 +667,16 @@ async function loadFiles(path = '') {
         renderFiles(filteredFiles);
         updateBreadcrumb(path);
         updateSortIndicators();
+        // Atualizar histórico se não vier de navegação do histórico
+        if (!fromHistory) {
+            // Se o usuário navegou para uma nova pasta, cortar o futuro
+            if (navIndex < navHistory.length - 1) {
+                navHistory = navHistory.slice(0, navIndex + 1);
+            }
+            navHistory.push(path);
+            navIndex = navHistory.length - 1;
+        }
+        updateNavButtons();
         console.log('Carregamento concluído com sucesso');
     } catch (error) {
         console.error('Erro ao carregar arquivos:', error);
@@ -646,6 +684,33 @@ async function loadFiles(path = '') {
         showEmptyState('Erro ao carregar arquivos');
     } finally {
         showLoading(false);
+    }
+}
+
+function updateNavButtons() {
+    if (navBackBtn) {
+        navBackBtn.disabled = navIndex <= 0;
+    }
+    if (navForwardBtn) {
+        navForwardBtn.disabled = navIndex >= navHistory.length - 1;
+    }
+}
+
+function goBack() {
+    if (navIndex > 0) {
+        navIndex -= 1;
+        const targetPath = navHistory[navIndex] || '';
+        loadFiles(targetPath, { fromHistory: true });
+        updateNavButtons();
+    }
+}
+
+function goForward() {
+    if (navIndex < navHistory.length - 1) {
+        navIndex += 1;
+        const targetPath = navHistory[navIndex] || '';
+        loadFiles(targetPath, { fromHistory: true });
+        updateNavButtons();
     }
 }
 
@@ -839,9 +904,9 @@ function setupFileItemEvents() {
         const key = item.dataset.key;
         const name = item.dataset.name;
 
-        // Clique duplo para abrir pasta
+        // Clique único para abrir pasta
         if (type === 'folder') {
-            item.addEventListener('dblclick', () => {
+            item.addEventListener('click', () => {
                 const folderPath = currentPath + name + '/';
                 loadFiles(folderPath);
             });
