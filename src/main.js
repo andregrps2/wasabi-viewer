@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron');
 const os = require('os');
 const path = require('path');
 const fs = require('fs');
@@ -16,18 +16,41 @@ let currentDownloadController = null;
 // Chave secreta para criptografia (em produção, use uma chave mais segura)
 const ENCRYPTION_KEY = 'wasabi-viewer-2025-secret-key-for-sharing';
 
+function resolveAppIcon() {
+  // Preferir .ico no Windows para ícone da barra de tarefas
+  const candidates = [
+    // Caminho absoluto fornecido pelo usuário (forma literal)
+    '/c:/Projetos/wasabi-viewer/wasabi_leaf_icon.ico',
+    // Caminho absoluto em formato Windows
+    'C:\\Projetos\\wasabi-viewer\\wasabi_leaf_icon.ico',
+    // Ícone principal na raiz do projeto
+    path.join(__dirname, '../wasabi_leaf_icon.ico'),
+    // Fallbacks
+    path.join(__dirname, '../assets/icon.ico'),
+    path.join(__dirname, '../assets/icon.png')
+  ];
+  for (const p of candidates) {
+    try { if (fs.existsSync(p)) return p; } catch (_) { }
+  }
+  return null;
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
+    autoHideMenuBar: true,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
       enableRemoteModule: false,
       preload: path.join(__dirname, 'preload.js')
     },
-    icon: path.join(__dirname, '../assets/icon.png')
+    icon: resolveAppIcon() || undefined
   });
+
+  // Abrir a janela maximizada por padrão
+  try { mainWindow.maximize(); } catch (_) { }
 
   mainWindow.loadFile(path.join(__dirname, 'renderer/index.html'));
 
@@ -37,7 +60,11 @@ function createWindow() {
   }
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  // Remover a menu bar nativa
+  try { Menu.setApplicationMenu(null); } catch (_) { }
+  createWindow();
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
@@ -57,6 +84,55 @@ function ensureUserDataDir() {
     fs.mkdirSync(dir, { recursive: true });
   }
 }
+
+// Helper para caminho de preferências
+const getPreferencesPath = () => path.join(app.getPath('userData'), 'preferences.json');
+
+// Carregar preferências
+ipcMain.handle('load-preferences', async () => {
+  try {
+    ensureUserDataDir();
+    const p = getPreferencesPath();
+    if (fs.existsSync(p)) {
+      const data = JSON.parse(fs.readFileSync(p, 'utf8'));
+      return { success: true, preferences: data };
+    }
+    return { success: true, preferences: { useDefaultDownloadDir: false, defaultDownloadDir: null, theme: 'light' } };
+  } catch (error) {
+    console.error('Erro ao carregar preferências:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Salvar preferências
+ipcMain.handle('save-preferences', async (event, preferences) => {
+  try {
+    ensureUserDataDir();
+    const p = getPreferencesPath();
+    fs.writeFileSync(p, JSON.stringify(preferences || {}, null, 2));
+    return { success: true };
+  } catch (error) {
+    console.error('Erro ao salvar preferências:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Selecionar diretório padrão de download
+ipcMain.handle('choose-default-download-dir', async () => {
+  try {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Selecionar pasta padrão de downloads',
+      properties: ['openDirectory']
+    });
+    if (result.canceled || !result.filePaths || !result.filePaths.length) {
+      return { success: false, cancelled: true };
+    }
+    return { success: true, dir: result.filePaths[0] };
+  } catch (error) {
+    console.error('Erro ao selecionar diretório:', error);
+    return { success: false, error: error.message };
+  }
+});
 
 // IPC Handlers
 
@@ -275,8 +351,20 @@ ipcMain.handle('download-file', async (event, fileKey, fileName, savePath) => {
     try {
       await pipeline(response.Body, writeStream, { signal });
     } catch (err) {
-      // Se o erro for causado por abort, retornar mensagem apropriada
+      // Se o erro for causado por abort, excluir arquivo parcial e retornar mensagem apropriada
       if (err && err.name === 'AbortError') {
+        // Fechar o stream antes de excluir o arquivo
+        writeStream.destroy();
+
+        // Excluir arquivo parcial se existir
+        try {
+          if (fs.existsSync(finalPath)) {
+            fs.unlinkSync(finalPath);
+          }
+        } catch (deleteErr) {
+          console.error('Erro ao excluir arquivo parcial:', deleteErr);
+        }
+
         if (mainWindow && mainWindow.webContents) {
           mainWindow.webContents.send('download-progress', { percent: 0, cancelled: true });
         }

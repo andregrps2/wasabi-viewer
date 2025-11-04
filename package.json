@@ -1,6 +1,6 @@
 {
   "name": "wasabi-viewer",
-  "version": "1.0.0",
+  "version": "1.0.3",
   "description": "Aplicativo desktop para visualizar e gerenciar arquivos do Wasabi S3",
   "main": "src/main.js",
   "scripts": {
@@ -21,6 +21,7 @@
   "devDependencies": {
     "electron": "^27.0.0",
     "electron-builder": "^24.6.4"
+    
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.436.0",
@@ -39,7 +40,7 @@
     ],
     "win": {
       "target": "nsis",
-      "icon": "assets/icon.ico"
+      "icon": "/c:/Projetos/wasabi-viewer/wasabi_leaf_icon.ico"
     }
   }
 }
