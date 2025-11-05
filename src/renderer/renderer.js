@@ -21,6 +21,9 @@ let _downloadLastSample = null; // { time: ms, bytes: number }
 let _downloadSpeedBps = null; // smoothed bytes/sec
 let _etaLastUpdateAt = 0; // last ETA label update timestamp
 let _downloadCancelledFlag = false; // track if user cancelled to avoid duplicate messages
+let _downloadMinimized = false; // quando true, manter apenas mini janela ativa
+let _downloadActive = false; // indica se há um download em andamento
+let _downloadQueue = []; // fila de próximos downloads { fileKey, fileName, savePath }
 
 // Elementos DOM
 const configScreen = document.getElementById('config-screen');
@@ -73,6 +76,58 @@ const progressModal = document.getElementById('progress-modal');
 const linkModal = document.getElementById('link-modal');
 const linkResult = document.querySelector('.link-result');
 const generatedLink = document.getElementById('generated-link');
+// Mini janela de download
+const downloadMini = document.getElementById('download-mini');
+const miniProgressFill = document.getElementById('mini-progress-fill');
+const miniProgressPercent = document.getElementById('mini-progress-percent');
+const miniProgressSize = document.getElementById('mini-progress-size');
+const miniProgressEta = document.getElementById('mini-progress-eta');
+const miniQueueCount = document.getElementById('mini-queue-count');
+const modalQueueCount = document.getElementById('modal-queue-count');
+
+function updateMiniQueueInfo() {
+    if (!miniQueueCount) return;
+    const q = _downloadQueue.length;
+    const label = q > 0 ? `Fila: ${q}` : '';
+    miniQueueCount.textContent = label;
+    if (modalQueueCount) modalQueueCount.textContent = label;
+}
+
+function resetProgressUI() {
+    try {
+        const fill = document.getElementById('progress-fill');
+        const text = document.getElementById('progress-text');
+        const sizeText = document.getElementById('progress-size');
+        const percentLabel = document.getElementById('progress-percent');
+        const etaEl = document.getElementById('progress-eta');
+
+        // Reset sem animação de regressão
+        if (fill) {
+            fill.classList.remove('indeterminate');
+            const prevTransition = fill.style.transition;
+            fill.style.transition = 'none';
+            fill.style.width = '0%';
+            void fill.offsetHeight; // força reflow
+            fill.style.transition = prevTransition || '';
+        }
+        if (percentLabel) percentLabel.textContent = '0%';
+        if (text) text.textContent = 'Preparando download...';
+        if (sizeText) sizeText.textContent = '0 B / 0 B';
+        if (etaEl) etaEl.textContent = '—';
+
+        if (miniProgressFill) {
+            miniProgressFill.classList.remove('indeterminate');
+            const prevMiniTransition = miniProgressFill.style.transition;
+            miniProgressFill.style.transition = 'none';
+            miniProgressFill.style.width = '0%';
+            void miniProgressFill.offsetHeight; // reflow
+            miniProgressFill.style.transition = prevMiniTransition || '';
+        }
+        if (miniProgressPercent) miniProgressPercent.textContent = '0%';
+        if (miniProgressSize) miniProgressSize.textContent = '0 B / 0 B';
+        if (miniProgressEta) miniProgressEta.textContent = '—';
+    } catch {}
+}
 // Modal de salvar arquivo
 const saveModal = document.getElementById('save-modal');
 const saveBreadcrumb = document.getElementById('save-breadcrumb');
@@ -115,8 +170,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const text = document.getElementById('progress-text');
                 const sizeText = document.getElementById('progress-size');
                 const percentLabel = document.getElementById('progress-percent');
-                // Mostrar modal de progresso
-                progressModal.classList.add('active');
+                // Não forçar visibilidade: respeitar estado atual e o modo minimizado
+                if (_downloadMinimized) {
+                    if (downloadMini) downloadMini.classList.add('active');
+                    if (progressModal) progressModal.classList.remove('active');
+                }
                 // If we have total bytes, compute an accurate percentage.
                 if (data && (data.totalBytes || data.totalBytes === 0)) {
                     const total = Number(data.totalBytes) || 0;
@@ -129,6 +187,14 @@ document.addEventListener('DOMContentLoaded', async () => {
                     if (percentLabel) percentLabel.textContent = `${percentDisplay}%`;
                     text.textContent = `Baixando...`;
                     sizeText.textContent = `${formatFileSize(downloaded)} / ${formatFileSize(total)}`;
+
+                    // Atualizar mini janela
+                    if (miniProgressFill) {
+                        miniProgressFill.classList.remove('indeterminate');
+                        miniProgressFill.style.width = `${percent}%`;
+                    }
+                    if (miniProgressPercent) miniProgressPercent.textContent = `${percentDisplay}%`;
+                    if (miniProgressSize) miniProgressSize.textContent = `${formatFileSize(downloaded)} / ${formatFileSize(total)}`;
 
                     // ETA calculation
                     try {
@@ -152,24 +218,29 @@ document.addEventListener('DOMContentLoaded', async () => {
                             const etaEl = document.getElementById('progress-eta');
                             const now2 = Date.now();
                             if (!_etaLastUpdateAt || (now2 - _etaLastUpdateAt) >= 800) {
-                                etaEl.textContent = `Tempo estimado: ${formatTimeRemaining(remainingSec)}`;
+                                const etaText = `Tempo estimado: ${formatTimeRemaining(remainingSec)}`;
+                                etaEl.textContent = etaText;
+                                if (miniProgressEta) miniProgressEta.textContent = etaText;
                                 _etaLastUpdateAt = now2;
                             }
                         } else {
-                            document.getElementById('progress-eta').textContent = `Tempo estimado: —`;
+                            const dash = `Tempo estimado: —`;
+                            document.getElementById('progress-eta').textContent = dash;
+                            if (miniProgressEta) miniProgressEta.textContent = dash;
                         }
                     } catch (e) {
-                        document.getElementById('progress-eta').textContent = `Tempo estimado: —`;
+                        const dash = `Tempo estimado: —`;
+                        document.getElementById('progress-eta').textContent = dash;
+                        if (miniProgressEta) miniProgressEta.textContent = dash;
                     }
 
                     if (percent >= 100) {
                         text.textContent = 'Download concluído';
-                        setTimeout(() => {
-                            closeModals();
-                            _downloadLastSample = null;
-                            _downloadSpeedBps = null;
-                            _etaLastUpdateAt = 0;
-                        }, 1200);
+                        // Não fechar aqui: deixar o fluxo de performDownload/processNextFromQueue
+                        // conduzir encerramento da UI e início do próximo item.
+                        _downloadLastSample = null;
+                        _downloadSpeedBps = null;
+                        _etaLastUpdateAt = 0;
                     }
                 } else if (data && (data.percent !== null && data.percent !== undefined)) {
                     // Fallback: percent provided by main
@@ -179,6 +250,14 @@ document.addEventListener('DOMContentLoaded', async () => {
                     fill.style.width = `${percent}%`;
                     text.textContent = `Progresso: ${percentDisplay}%`;
                     sizeText.textContent = data.downloadedBytes ? `${formatFileSize(data.downloadedBytes)} / ?` : '';
+
+                    // Atualizar mini janela
+                    if (miniProgressFill) {
+                        miniProgressFill.classList.remove('indeterminate');
+                        miniProgressFill.style.width = `${percent}%`;
+                    }
+                    if (miniProgressPercent) miniProgressPercent.textContent = `${percentDisplay}%`;
+                    if (miniProgressSize) miniProgressSize.textContent = data.downloadedBytes ? `${formatFileSize(data.downloadedBytes)} / ?` : '';
 
                     // update sample for speed estimation when downloadedBytes provided
                     if (data.downloadedBytes) {
@@ -197,17 +276,16 @@ document.addEventListener('DOMContentLoaded', async () => {
                             }
                         }
                         _downloadLastSample = { time: now, bytes: downloaded };
-                        document.getElementById('progress-eta').textContent = `Tempo estimado: —`;
+                        const dash = `Tempo estimado: —`;
+                        document.getElementById('progress-eta').textContent = dash;
+                        if (miniProgressEta) miniProgressEta.textContent = dash;
                     }
 
                     if (percent >= 100) {
                         text.textContent = 'Download concluído';
-                        setTimeout(() => {
-                            closeModals();
-                            _downloadLastSample = null;
-                            _downloadSpeedBps = null;
-                            _etaLastUpdateAt = 0;
-                        }, 1200);
+                        _downloadLastSample = null;
+                        _downloadSpeedBps = null;
+                        _etaLastUpdateAt = 0;
                     }
                 } else if (data && data.downloadedBytes) {
                     // Unknown total size: show downloaded bytes and indeterminate animation
@@ -215,6 +293,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                     const downloaded = Number(data.downloadedBytes) || 0;
                     text.textContent = `Baixados: ${formatFileSize(downloaded)}`;
                     sizeText.textContent = `${formatFileSize(downloaded)} / ?`;
+
+                    // Atualizar mini janela
+                    if (miniProgressFill) miniProgressFill.classList.add('indeterminate');
+                    if (miniProgressPercent) miniProgressPercent.textContent = '';
+                    if (miniProgressSize) miniProgressSize.textContent = `${formatFileSize(downloaded)} / ?`;
 
                     // update sample for speed estimation
                     const now = Date.now();
@@ -231,14 +314,16 @@ document.addEventListener('DOMContentLoaded', async () => {
                         }
                     }
                     _downloadLastSample = { time: now, bytes: downloaded };
-                    document.getElementById('progress-eta').textContent = `Tempo estimado: —`;
+                    const dash = `Tempo estimado: —`;
+                    document.getElementById('progress-eta').textContent = dash;
+                    if (miniProgressEta) miniProgressEta.textContent = dash;
                 }
 
                 if (data && data.cancelled) {
                     text.textContent = 'Download cancelado pelo usuario';
                     showNotification('Download cancelado pelo usuario', 'info');
                     _downloadCancelledFlag = true;
-                    setTimeout(() => closeModals(), 1200);
+                    // Não fechar aqui; performDownload cuidará do encerramento.
                 }
             } catch (err) {
                 console.error('Erro ao processar evento de progresso:', err);
@@ -250,17 +335,65 @@ document.addEventListener('DOMContentLoaded', async () => {
     const cancelBtn = document.getElementById('cancel-download-btn');
     const cancelConfirmModal = document.getElementById('cancel-confirm-modal');
     const cancelYes = document.getElementById('cancel-confirm-yes');
+    const cancelAll = document.getElementById('cancel-confirm-all');
     const cancelNo = document.getElementById('cancel-confirm-no');
+    // Botões da mini janela
+    const minimizeDownloadBtn = document.getElementById('minimize-download-btn');
+    const miniRestoreBtn = document.getElementById('mini-restore-btn');
+    const miniCancelBtn = document.getElementById('mini-cancel-btn');
+
+    // Preparar modal de confirmação de cancelamento conforme estado da fila
+    function prepareCancelConfirmModal() {
+        if (!cancelConfirmModal) return;
+        const hasQueue = Array.isArray(_downloadQueue) && _downloadQueue.length > 0;
+        if (cancelAll) {
+            cancelAll.style.display = hasQueue ? '' : 'none';
+        }
+        if (cancelYes) {
+            cancelYes.textContent = hasQueue ? 'Cancelar somente atual' : 'Sim, cancelar download';
+        }
+    }
 
     if (cancelBtn) {
         cancelBtn.addEventListener('click', () => {
             if (cancelConfirmModal) {
+                prepareCancelConfirmModal();
                 cancelConfirmModal.classList.add('active');
             } else {
                 // fallback: enviar cancel direto
                 if (window.electronAPI && typeof window.electronAPI.cancelDownload === 'function') {
                     window.electronAPI.cancelDownload();
                 }
+            }
+        });
+    }
+
+    // Minimizar modal de progresso para mini janela
+    if (minimizeDownloadBtn) {
+        minimizeDownloadBtn.addEventListener('click', () => {
+            _downloadMinimized = true;
+            if (progressModal) progressModal.classList.remove('active');
+            if (downloadMini) downloadMini.classList.add('active');
+        });
+    }
+
+    // Restaurar a partir da mini janela
+    if (miniRestoreBtn) {
+        miniRestoreBtn.addEventListener('click', () => {
+            _downloadMinimized = false;
+            if (downloadMini) downloadMini.classList.remove('active');
+            if (progressModal) progressModal.classList.add('active');
+        });
+    }
+
+    // Cancelar a partir da mini janela
+    if (miniCancelBtn) {
+        miniCancelBtn.addEventListener('click', () => {
+            if (cancelConfirmModal) {
+                prepareCancelConfirmModal();
+                cancelConfirmModal.classList.add('active');
+            } else if (window.electronAPI && typeof window.electronAPI.cancelDownload === 'function') {
+                window.electronAPI.cancelDownload();
             }
         });
     }
@@ -278,6 +411,31 @@ document.addEventListener('DOMContentLoaded', async () => {
             } finally {
                 if (cancelConfirmModal) cancelConfirmModal.classList.remove('active');
                 // também fechar modal de progresso
+                if (progressModal) progressModal.classList.remove('active');
+            }
+        });
+    }
+
+    // Cancelar toda a fila
+    if (cancelAll) {
+        cancelAll.addEventListener('click', async () => {
+            try {
+                // cancelar o atual
+                if (window.electronAPI && typeof window.electronAPI.cancelDownload === 'function') {
+                    await window.electronAPI.cancelDownload();
+                }
+            } catch (err) {
+                console.error('Erro ao cancelar downloads:', err);
+                showNotification('Erro ao cancelar downloads', 'error');
+            } finally {
+                // limpar a fila e atualizar indicadores
+                const removed = _downloadQueue.length;
+                _downloadQueue = [];
+                updateMiniQueueInfo();
+                if (removed > 0) {
+                    showNotification(`Fila cancelada: ${removed} itens removidos`, 'info');
+                }
+                if (cancelConfirmModal) cancelConfirmModal.classList.remove('active');
                 if (progressModal) progressModal.classList.remove('active');
             }
         });
@@ -1133,9 +1291,39 @@ function joinPaths(a, b) {
 }
 
 async function performDownload(fileKey, fileName, savePath) {
+    // Se já há download ativo, enfileira até o máximo de 4
+    if (_downloadActive) {
+        if (_downloadQueue.length >= 4) {
+            showNotification('Limite de 4 arquivos na fila atingido', 'info');
+            return;
+        }
+        _downloadQueue.push({ fileKey, fileName, savePath });
+        updateMiniQueueInfo();
+        showNotification(`Adicionado à fila: ${fileName}`, 'info');
+        // Garantir mini janela visível ao enfileirar no modo minimizado
+        if (_downloadMinimized && downloadMini) downloadMini.classList.add('active');
+        return;
+    }
+
+    // Inicia imediatamente
+    _downloadActive = true;
     _downloadCancelledFlag = false;
+    _downloadLastSample = null;
+    _downloadSpeedBps = null;
     _etaLastUpdateAt = 0;
-    showProgressModal();
+    // Ao iniciar novo download sem processo ativo nem fila, abrir modal padrão
+    if (!_downloadQueue.length) {
+        _downloadMinimized = false;
+    }
+    // UI conforme estado minimizado
+    if (_downloadMinimized) {
+        if (progressModal) progressModal.classList.remove('active');
+        if (downloadMini) downloadMini.classList.add('active');
+    } else {
+        showProgressModal();
+    }
+    resetProgressUI();
+
     try {
         const result = await window.electronAPI.downloadFile(fileKey, fileName, savePath);
         if (result.success) {
@@ -1143,10 +1331,7 @@ async function performDownload(fileKey, fileName, savePath) {
         } else {
             const msg = (result.error || result.message || '').toString().toLowerCase();
             const isCancel = msg.includes('cancel') || msg.includes('cancelado') || msg.includes('canceled');
-            if (isCancel) {
-                // Cancelamento: mensagem já tratada no evento de progresso; evitar duplicação
-                // Se o progresso não disparar, ainda fecharemos os modais abaixo
-            } else {
+            if (!isCancel) {
                 showNotification(`Erro no download: ${result.error || result.message}`, 'error');
             }
         }
@@ -1158,8 +1343,65 @@ async function performDownload(fileKey, fileName, savePath) {
             showNotification('Erro no download: ' + (error.message || 'Falha desconhecida'), 'error');
         }
     } finally {
+        // Encerrar UI atual
         closeModals();
+        _downloadActive = false;
+        // Processar próximo da fila
+        processNextFromQueue();
     }
+}
+
+function processNextFromQueue() {
+    if (_downloadQueue.length === 0) {
+        updateMiniQueueInfo();
+        return;
+    }
+    const next = _downloadQueue.shift();
+    updateMiniQueueInfo();
+    if (next && next.fileName) {
+        showNotification(`Iniciando próximo download na fila: ${next.fileName}`, 'info');
+    } else {
+        showNotification('Iniciando próximo download na fila', 'info');
+    }
+    // Mantém estado minimizado se já estava
+    _downloadActive = true;
+    _downloadCancelledFlag = false;
+    _downloadLastSample = null;
+    _downloadSpeedBps = null;
+    _etaLastUpdateAt = 0;
+    if (_downloadMinimized) {
+        if (progressModal) progressModal.classList.remove('active');
+        if (downloadMini) downloadMini.classList.add('active');
+    } else {
+        showProgressModal();
+    }
+    resetProgressUI();
+    // Executar tarefa
+    window.electronAPI.downloadFile(next.fileKey, next.fileName, next.savePath)
+        .then(result => {
+            if (result && result.success) {
+                showNotification(`Arquivo baixado: ${result.path}`, 'success');
+            } else if (result) {
+                const msg = (result.error || result.message || '').toString().toLowerCase();
+                const isCancel = msg.includes('cancel') || msg.includes('cancelado') || msg.includes('canceled');
+                if (!isCancel) {
+                    showNotification(`Erro no download: ${result.error || result.message}`, 'error');
+                }
+            }
+        })
+        .catch(error => {
+            console.error('Erro no download:', error);
+            const emsg = (error && error.message ? error.message : '').toString().toLowerCase();
+            const isCancel = emsg.includes('cancel') || emsg.includes('cancelado') || emsg.includes('canceled');
+            if (!isCancel) {
+                showNotification('Erro no download: ' + (error.message || 'Falha desconhecida'), 'error');
+            }
+        })
+        .finally(() => {
+            closeModals();
+            _downloadActive = false;
+            processNextFromQueue();
+        });
 }
 
 // Mostrar modal de link
@@ -1224,6 +1466,8 @@ function showEmptyState(message) {
 
 // Mostrar modal de progresso
 function showProgressModal() {
+    _downloadMinimized = false;
+    if (downloadMini) downloadMini.classList.remove('active');
     progressModal.classList.add('active');
 }
 
@@ -1236,6 +1480,7 @@ function closeModals() {
     if (saveModal) saveModal.classList.remove('active');
     const cancelConfirmModal = document.getElementById('cancel-confirm-modal');
     if (cancelConfirmModal) cancelConfirmModal.classList.remove('active');
+    if (downloadMini) downloadMini.classList.remove('active');
 }
 
 // Configurar eventos dos itens de configuração

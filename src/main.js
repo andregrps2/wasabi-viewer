@@ -19,12 +19,13 @@ const ENCRYPTION_KEY = 'wasabi-viewer-2025-secret-key-for-sharing';
 function resolveAppIcon() {
   // Preferir .ico no Windows para ícone da barra de tarefas
   const candidates = [
-    // Caminho absoluto fornecido pelo usuário (forma literal)
-    '/c:/Projetos/wasabi-viewer/wasabi_leaf_icon.ico',
-    // Caminho absoluto em formato Windows
-    'C:\\Projetos\\wasabi-viewer\\wasabi_leaf_icon.ico',
-    // Ícone principal na raiz do projeto
+    // Ícone verde na raiz do projeto
+    path.join(__dirname, '../icone_green_leaf.ico'),
+    // Fallback em assets
+    path.join(__dirname, '../assets/icone_green_leaf.ico'),
+    // Antigo ícone como fallback adicional
     path.join(__dirname, '../wasabi_leaf_icon.ico'),
+    path.join(__dirname, '../assets/wasabi_leaf_icon.ico'),
     // Fallbacks
     path.join(__dirname, '../assets/icon.ico'),
     path.join(__dirname, '../assets/icon.png')

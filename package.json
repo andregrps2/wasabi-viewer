@@ -1,6 +1,6 @@
 {
   "name": "wasabi-viewer",
-  "version": "1.0.5",
+  "version": "1.0.9",
   "description": "Aplicativo desktop para visualizar e gerenciar arquivos do Wasabi S3",
   "main": "src/main.js",
   "scripts": {
@@ -8,7 +8,9 @@
     "dev": "electron .",
     "dev-debug": "electron . --dev",
     "build": "electron-builder",
-    "dist": "electron-builder --publish=never"
+    "generate-ico": "node scripts/generate-ico.js",
+    "generate-installer-assets": "node scripts/generate-installer-assets.js",
+    "dist": "npm run generate-ico && npm run generate-installer-assets && electron-builder --publish=never && node scripts/post-dist.js"
   },
   "keywords": [
     "electron",
@@ -20,8 +22,9 @@
   "license": "MIT",
   "devDependencies": {
     "electron": "^27.0.0",
-    "electron-builder": "^24.6.4"
-    
+    "electron-builder": "^24.6.4",
+    "png-to-ico": "^3.0.1",
+    "sharp": "^0.34.4"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.436.0",
@@ -31,16 +34,31 @@
   "build": {
     "appId": "com.suporte.wasabi-viewer",
     "productName": "Wasabi Viewer",
+    "icon": "icone_green_leaf.ico",
     "directories": {
-      "output": "dist"
+      "output": "dist",
+      "buildResources": "assets"
     },
     "files": [
       "src/**/*",
-      "assets/**/*"
+      "assets/**/*",
+      "icone_green_leaf.ico"
     ],
     "win": {
       "target": "nsis",
-      "icon": "/c:/Projetos/wasabi-viewer/wasabi_leaf_icon.ico"
-    }
+      "icon": "icone_green_leaf.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "runAfterFinish": true,
+      "installerIcon": "icone_green_leaf.ico",
+      "uninstallerIcon": "icone_green_leaf.ico",
+      "installerHeaderIcon": "icone_green_leaf.ico",
+      "installerSidebar": "assets/nsis-installer-sidebar.bmp",
+      "uninstallerSidebar": "assets/nsis-uninstaller-sidebar.bmp",
+      "installerHeader": "assets/nsis-installer-header.bmp"
+    },
+    "buildVersion": "1.0.9"
   }
 }

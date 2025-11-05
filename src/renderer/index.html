@@ -20,7 +20,7 @@
             <div class="config-header">
                 <h1>
                     <span class="brand-logo" aria-hidden="true">
-                        <img src="../../green_energy_leaf_renewable_eco.png" alt="Wasabi Logo" class="brand-logo-img">
+                        <img src="../../assets/green_leaf_logo.png" alt="Wasabi Logo" class="brand-logo-img">
                     </span>
                     Wasabi Viewer
                 </h1>
@@ -130,7 +130,7 @@
             <div class="header-left">
                 <h1>
                     <span class="brand-logo" aria-hidden="true">
-                        <img src="../../green_energy_leaf_renewable_eco.png" alt="Wasabi Logo" class="brand-logo-img">
+                        <img src="../../assets/green_leaf_logo.png" alt="Wasabi Logo" class="brand-logo-img">
                     </span>
                     Wasabi Viewer
                 </h1>
@@ -207,7 +207,12 @@
         <!-- Modal de Progress -->
         <div id="progress-modal" class="modal">
             <div class="modal-content">
-                <h3>Download em andamento...</h3>
+                <div class="modal-header">
+                    <h3>Download em andamento...</h3>
+                    <div class="modal-actions">
+                        <span id="modal-queue-count" class="modal-queue"></span>
+                    </div>
+                </div>
                 <div class="progress-bar">
                     <div id="progress-fill" class="progress-fill"></div>
                     <span id="progress-percent" class="progress-label">0%</span>
@@ -217,8 +222,9 @@
                     <span id="progress-size">0 B / 0 B</span>
                     <span id="progress-eta">—</span>
                 </div>
-                <div style="text-align:center;margin-top:12px;">
-                    <button id="cancel-download-btn" class="btn btn-danger">Cancelar Download</button>
+                <div class="progress-actions">
+                    <button id="minimize-download-btn" class="btn btn-secondary btn-compact">Minimizar</button>
+                    <button id="cancel-download-btn" class="btn btn-danger btn-compact">Cancelar Download</button>
                 </div>
             </div>
         </div>
@@ -254,10 +260,9 @@
                     <button class="modal-close">&times;</button>
                 </div>
                 <div class="modal-body">
-                    <p>Tem certeza que deseja cancelar o download em andamento? Isso interromperá o download atual.</p>
-                    <div class="confirm-actions"
-                        style="margin-top:16px; display:flex; gap:10px; justify-content:center;">
-                        <button id="cancel-confirm-yes" class="btn btn-danger">Sim, cancelar</button>
+                    <div class="confirm-actions" style="margin-top:16px; display:flex; gap:10px; justify-content:center; flex-wrap: wrap;">
+                        <button id="cancel-confirm-yes" class="btn btn-danger">Cancelar somente atual</button>
+                        <button id="cancel-confirm-all" class="btn btn-warning">Cancelar toda a fila</button>
                         <button id="cancel-confirm-no" class="btn btn-secondary">Manter</button>
                     </div>
                 </div>
@@ -369,6 +374,30 @@
                         </div>
                     </div>
                 </section>
+            </div>
+        </div>
+    </div>
+
+    <!-- Mini janela de download (canto inferior direito) -->
+    <div id="download-mini" class="download-mini">
+        <div class="mini-header">
+            <div class="mini-left">
+                <span class="mini-title">Download em andamento</span>
+                <span id="mini-queue-count" class="mini-queue" aria-live="polite"></span>
+            </div>
+            <div class="mini-actions">
+                <button id="mini-restore-btn" class="btn btn-secondary btn-tiny">Restaurar</button>
+                <button id="mini-cancel-btn" class="btn btn-danger btn-tiny">Cancelar</button>
+            </div>
+        </div>
+        <div class="mini-body">
+            <div class="progress-bar progress-mini">
+                <div id="mini-progress-fill" class="progress-fill"></div>
+                <span id="mini-progress-percent" class="progress-label">0%</span>
+            </div>
+            <div class="progress-meta mini-meta">
+                <span id="mini-progress-size">0 B / 0 B</span>
+                <span id="mini-progress-eta">—</span>
             </div>
         </div>
     </div>

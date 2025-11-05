@@ -950,6 +950,7 @@ input:checked + .slider:before {
     align-items: center;
     margin-bottom: 20px;
 }
+.modal-queue { font-size: 13px; color: var(--text-secondary); }
 
 .modal-close {
     background: none;
@@ -1066,6 +1067,18 @@ input:checked + .slider:before {
     color: #fff;
 }
 
+/* Ações do progresso (minimizar e cancelar lado a lado) */
+.progress-actions {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 12px;
+}
+.btn-compact {
+    padding: 6px 12px;
+    font-size: 13px;
+}
+
 /* Notifications */
 .notifications {
     position: fixed;
@@ -1111,6 +1124,48 @@ input:checked + .slider:before {
         opacity: 1;
     }
 }
+
+/* Mini janela de download (canto inferior direito) */
+.download-mini {
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
+    width: 360px; /* largura levemente maior para melhor leitura */
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px var(--shadow-hover);
+    z-index: 2100;
+    display: none;
+}
+.download-mini.active { display: block; }
+.mini-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px; /* reduzir altura para ficar mais compacto */
+    border-bottom: 1px solid var(--border-light);
+}
+.mini-left { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+.mini-actions { flex-shrink: 0; }
+.mini-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mini-actions .btn { white-space: nowrap; }
+.mini-title { font-weight: 600; color: var(--text-primary); }
+.mini-actions { display: flex; gap: 8px; }
+.btn-tiny {
+    padding: 4px 8px;
+    font-size: 12px;
+}
+.mini-body { padding: 10px 14px 12px 14px; display: grid; row-gap: 10px; }
+.mini-body .progress-bar { margin: 8px 0; }
+.progress-mini .progress-label { font-size: 12px; }
+.mini-meta { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.progress-mini { height: 12px; }
+.mini-meta { font-size: 12px; margin-top: 0; }
+.mini-queue { font-size: 12px; color: var(--text-secondary); }
+
+[data-theme="dark"] .download-mini { background: var(--bg-primary); border-color: var(--border-color); }
 
 /* Responsividade */
 @media (max-width: 768px) {
