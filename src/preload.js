@@ -34,4 +34,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // FS helpers para modal customizado
   getHomeDir: () => ipcRenderer.invoke('fs-home-dir'),
   listDir: (dirPath) => ipcRenderer.invoke('fs-list-dir', dirPath)
+  ,
+  // Preferências
+  loadPreferences: () => ipcRenderer.invoke('load-preferences'),
+  savePreferences: (preferences) => ipcRenderer.invoke('save-preferences', preferences),
+  chooseDefaultDownloadDir: () => ipcRenderer.invoke('choose-default-download-dir')
 });

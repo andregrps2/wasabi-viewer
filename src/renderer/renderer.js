@@ -1,5 +1,8 @@
 // Estado da aplicação
 let currentPath = '';
+// Histórico de navegação
+let navHistory = [''];
+let navIndex = 0;
 let currentFiles = [];
 let filteredFiles = [];
 let selectedFileKey = '';
@@ -32,8 +35,21 @@ const configBtn = document.getElementById('config-btn');
 const bucketSelect = document.getElementById('bucket-select');
 const configList = document.getElementById('config-list');
 const newConfigBtn = document.getElementById('new-config-btn');
-const openSavedConfigsBtn = document.getElementById('open-saved-configs-btn');
-const themeToggle = document.getElementById('theme-toggle');
+// Navegação
+const navBackBtn = document.getElementById('nav-back');
+const navForwardBtn = document.getElementById('nav-forward');
+// Botão e modal de Configurações
+const settingsBtn = document.getElementById('settings-btn');
+const settingsBtnConfig = document.getElementById('settings-btn-config');
+const settingsModal = document.getElementById('settings-modal');
+const settingsClose = document.getElementById('settings-close');
+const settingsTabs = document.querySelectorAll('.settings-tab');
+// Preferências
+const prefUseDefaultDownload = document.getElementById('pref-use-default-download');
+const prefDefaultDownloadPath = document.getElementById('pref-default-download-path');
+const prefChooseDownloadDir = document.getElementById('pref-choose-download-dir');
+// Tema
+const themeSwitch = document.getElementById('theme-switch');
 
 // Modal de configuração
 const configModal = document.getElementById('config-modal');
@@ -68,11 +84,14 @@ const saveCancelBtn = document.getElementById('save-cancel-btn');
 // Estado do modal de salvar
 let saveCurrentDir = '';
 let pendingDownload = { key: null, name: null };
+let saveModalMode = 'download'; // 'download' | 'chooseDir'
+// Estado de preferências
+let appPreferences = { useDefaultDownloadDir: false, defaultDownloadDir: null, theme: 'light' };
 
 // Inicialização
 document.addEventListener('DOMContentLoaded', async () => {
-    // Carregar tema salvo
-    loadSavedTheme();
+    // Inicializar preferências e UI de configurações
+    await initSettings();
 
     // Carregar configurações salvas
     await loadSavedConfigs();
@@ -275,12 +294,18 @@ document.addEventListener('DOMContentLoaded', async () => {
 // Carregar configurações salvas
 async function loadSavedConfigs() {
     try {
+        if (!window.electronAPI || typeof window.electronAPI.loadS3Configs !== 'function') {
+            savedConfigs = [];
+            renderConfigList();
+            return;
+        }
         const configs = await window.electronAPI.loadS3Configs();
         savedConfigs = configs || [];
         renderConfigList();
     } catch (error) {
         console.error('Erro ao carregar configurações:', error);
         savedConfigs = [];
+        renderConfigList();
     }
 }
 
@@ -378,17 +403,61 @@ function setupEventListeners() {
     configBtn.addEventListener('click', showConfigScreen);
     bucketSelect.addEventListener('change', handleBucketChange);
     newConfigBtn.addEventListener('click', showNewConfigModal);
-    if (openSavedConfigsBtn) {
-        openSavedConfigsBtn.addEventListener('click', () => {
-            const sec = document.getElementById('saved-configs');
-            if (sec && typeof sec.scrollIntoView === 'function') {
-                try { sec.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
-                catch (_) { sec.scrollIntoView(); }
-            }
+    cancelModalBtn.addEventListener('click', hideConfigModal);
+
+    // Configurações
+    if (settingsBtn) {
+        settingsBtn.addEventListener('click', () => {
+            if (settingsModal) settingsModal.classList.add('active');
         });
     }
-    cancelModalBtn.addEventListener('click', hideConfigModal);
-    themeToggle.addEventListener('click', toggleTheme);
+    if (settingsBtnConfig) {
+        settingsBtnConfig.addEventListener('click', () => {
+            if (settingsModal) settingsModal.classList.add('active');
+        });
+    }
+    if (settingsClose) {
+        settingsClose.addEventListener('click', () => {
+            if (settingsModal) settingsModal.classList.remove('active');
+        });
+    }
+    if (settingsTabs && settingsTabs.forEach) {
+        settingsTabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                // alternar aba ativa
+                settingsTabs.forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                const target = tab.getAttribute('data-tab');
+                document.querySelectorAll('.settings-section').forEach(sec => {
+                    sec.classList.remove('active');
+                });
+                const section = document.getElementById(`settings-section-${target}`);
+                if (section) section.classList.add('active');
+            });
+        });
+    }
+    if (themeSwitch) {
+        themeSwitch.addEventListener('change', () => {
+            const newTheme = themeSwitch.checked ? 'dark' : 'light';
+            setTheme(newTheme);
+        });
+    }
+    if (prefUseDefaultDownload) {
+        prefUseDefaultDownload.addEventListener('change', async () => {
+            appPreferences.useDefaultDownloadDir = !!prefUseDefaultDownload.checked;
+            // Se marcado e sem diretório definido, solicitar escolha
+            if (appPreferences.useDefaultDownloadDir && !appPreferences.defaultDownloadDir) {
+                await openChooseDefaultDirModal();
+            }
+            // persistir
+            try { await window.electronAPI.savePreferences(appPreferences); } catch (e) { console.error(e); }
+        });
+    }
+    if (prefChooseDownloadDir) {
+        prefChooseDownloadDir.addEventListener('click', async () => {
+            await openChooseDefaultDirModal();
+        });
+    }
 
     // Compartilhamento
     connectSharedBtn.addEventListener('click', handleConnectShared);
@@ -404,6 +473,27 @@ function setupEventListeners() {
 
     // Modals
     setupModalEvents();
+
+    // Navegação por setas (voltar/avançar)
+    if (navBackBtn) {
+        navBackBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            goBack();
+        });
+    }
+    if (navForwardBtn) {
+        navForwardBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            goForward();
+        });
+    }
+    updateNavButtons();
+
+    // Botões laterais do mouse (Windows): 3 = Back, 4 = Forward
+    window.addEventListener('mouseup', (e) => {
+        if (e.button === 3) { e.preventDefault(); goBack(); }
+        if (e.button === 4) { e.preventDefault(); goForward(); }
+    });
 }
 
 // Configurar eventos dos modais
@@ -429,6 +519,20 @@ function setupModalEvents() {
     if (saveConfirmBtn) {
         saveConfirmBtn.addEventListener('click', async (e) => {
             e.preventDefault();
+            if (saveModalMode === 'chooseDir') {
+                if (!saveCurrentDir) return;
+                appPreferences.defaultDownloadDir = saveCurrentDir;
+                if (prefDefaultDownloadPath) {
+                    prefDefaultDownloadPath.textContent = saveCurrentDir;
+                }
+                if (prefUseDefaultDownload && !prefUseDefaultDownload.checked) {
+                    prefUseDefaultDownload.checked = true;
+                    appPreferences.useDefaultDownloadDir = true;
+                }
+                try { await window.electronAPI.savePreferences(appPreferences); } catch (e) { console.error(e); }
+                closeModals();
+                return;
+            }
             if (!pendingDownload.key || !pendingDownload.name || !saveCurrentDir) return;
             const name = (saveFileNameInput?.value || pendingDownload.name).trim();
             if (!name) return;
@@ -537,7 +641,7 @@ function showMainScreen() {
 }
 
 // Carregar arquivos do S3
-async function loadFiles(path = '') {
+async function loadFiles(path = '', options = {}) {
     console.log('Iniciando carregamento de arquivos, path:', path);
 
     if (!currentConfig) {
@@ -545,6 +649,7 @@ async function loadFiles(path = '') {
         return;
     }
 
+    const fromHistory = !!options.fromHistory;
     showLoading(true);
     currentPath = path;
 
@@ -562,6 +667,16 @@ async function loadFiles(path = '') {
         renderFiles(filteredFiles);
         updateBreadcrumb(path);
         updateSortIndicators();
+        // Atualizar histórico se não vier de navegação do histórico
+        if (!fromHistory) {
+            // Se o usuário navegou para uma nova pasta, cortar o futuro
+            if (navIndex < navHistory.length - 1) {
+                navHistory = navHistory.slice(0, navIndex + 1);
+            }
+            navHistory.push(path);
+            navIndex = navHistory.length - 1;
+        }
+        updateNavButtons();
         console.log('Carregamento concluído com sucesso');
     } catch (error) {
         console.error('Erro ao carregar arquivos:', error);
@@ -569,6 +684,33 @@ async function loadFiles(path = '') {
         showEmptyState('Erro ao carregar arquivos');
     } finally {
         showLoading(false);
+    }
+}
+
+function updateNavButtons() {
+    if (navBackBtn) {
+        navBackBtn.disabled = navIndex <= 0;
+    }
+    if (navForwardBtn) {
+        navForwardBtn.disabled = navIndex >= navHistory.length - 1;
+    }
+}
+
+function goBack() {
+    if (navIndex > 0) {
+        navIndex -= 1;
+        const targetPath = navHistory[navIndex] || '';
+        loadFiles(targetPath, { fromHistory: true });
+        updateNavButtons();
+    }
+}
+
+function goForward() {
+    if (navIndex < navHistory.length - 1) {
+        navIndex += 1;
+        const targetPath = navHistory[navIndex] || '';
+        loadFiles(targetPath, { fromHistory: true });
+        updateNavButtons();
     }
 }
 
@@ -743,7 +885,7 @@ function createFileItem(file) {
             <div class="file-date">${date}</div>
             <div class="file-actions">
                 ${!isFolder ? `
-                    <button class="btn btn-info btn-download" title="Baixar">
+                    <button class="btn btn-secondary btn-download" title="Baixar">
                         <i class="fas fa-download"></i>
                     </button>
                     <button class="btn btn-secondary btn-link" title="Copiar Link">
@@ -762,9 +904,9 @@ function setupFileItemEvents() {
         const key = item.dataset.key;
         const name = item.dataset.name;
 
-        // Clique duplo para abrir pasta
+        // Clique único para abrir pasta
         if (type === 'folder') {
-            item.addEventListener('dblclick', () => {
+            item.addEventListener('click', () => {
                 const folderPath = currentPath + name + '/';
                 loadFiles(folderPath);
             });
@@ -883,7 +1025,17 @@ function handleSearch(e) {
 
 // Download de arquivo
 async function downloadFile(fileKey, fileName) {
-    // Abrir modal customizado para escolher diretório e nome
+    // Se preferência de diretório padrão estiver ativa e definida, baixar direto
+    try {
+        if (appPreferences.useDefaultDownloadDir && appPreferences.defaultDownloadDir) {
+            const savePath = joinPaths(appPreferences.defaultDownloadDir, fileName);
+            await performDownload(fileKey, fileName, savePath);
+            return;
+        }
+    } catch (e) {
+        console.error('Erro ao preparar caminho padrão de download:', e);
+    }
+    // Senão, abrir modal customizado para escolher diretório e nome
     pendingDownload = { key: fileKey, name: fileName };
     saveFileNameInput && (saveFileNameInput.value = fileName);
     await openSaveModal();
@@ -894,10 +1046,36 @@ async function openSaveModal() {
         const home = await window.electronAPI.getHomeDir();
         saveCurrentDir = home;
         await loadSaveDir(home);
+        // Modo padrão: download
+        saveModalMode = 'download';
+        const nameRow = saveFileNameInput?.closest('.form-row');
+        if (nameRow) nameRow.style.display = '';
+        const headerEl = saveModal?.querySelector('.modal-header h3');
+        if (headerEl) headerEl.textContent = 'Salvar arquivo';
+        if (saveConfirmBtn) saveConfirmBtn.textContent = 'Salvar aqui';
         if (saveModal) saveModal.classList.add('active');
     } catch (e) {
         console.error('Erro abrindo modal de salvar:', e);
         showNotification('Não foi possível abrir o modal de salvar', 'error');
+    }
+}
+
+async function openChooseDefaultDirModal() {
+    try {
+        const home = await window.electronAPI.getHomeDir();
+        saveCurrentDir = home;
+        await loadSaveDir(home);
+        // Modo seleção de diretório para preferências
+        saveModalMode = 'chooseDir';
+        const nameRow = saveFileNameInput?.closest('.form-row');
+        if (nameRow) nameRow.style.display = 'none';
+        const headerEl = saveModal?.querySelector('.modal-header h3');
+        if (headerEl) headerEl.textContent = 'Selecionar diretório de download';
+        if (saveConfirmBtn) saveConfirmBtn.textContent = 'Selecionar aqui';
+        if (saveModal) saveModal.classList.add('active');
+    } catch (e) {
+        console.error('Erro abrindo modal de diretório:', e);
+        showNotification('Não foi possível abrir a seleção de diretório', 'error');
     }
 }
 
@@ -1205,33 +1383,53 @@ function generateId() {
     return Date.now().toString(36) + Math.random().toString(36).substr(2);
 }
 
-// Gerenciamento de Tema
-function loadSavedTheme() {
-    const savedTheme = localStorage.getItem('wasabi-viewer-theme') || 'light';
-    setTheme(savedTheme);
+// Preferências e Tema
+async function initSettings() {
+    try {
+        if (!window.electronAPI || typeof window.electronAPI.loadPreferences !== 'function') {
+            const savedTheme = localStorage.getItem('wasabi-viewer-theme');
+            if (savedTheme) appPreferences.theme = savedTheme;
+        } else {
+            const res = await window.electronAPI.loadPreferences();
+            if (res && res.success && res.preferences) {
+                appPreferences = Object.assign({}, appPreferences, res.preferences);
+            } else {
+                const savedTheme = localStorage.getItem('wasabi-viewer-theme');
+                if (savedTheme) appPreferences.theme = savedTheme;
+            }
+        }
+    } catch (e) {
+        console.error('Erro ao carregar preferências:', e);
+        const savedTheme = localStorage.getItem('wasabi-viewer-theme');
+        if (savedTheme) appPreferences.theme = savedTheme;
+    }
+    // aplicar UI
+    if (prefUseDefaultDownload) {
+        prefUseDefaultDownload.checked = !!appPreferences.useDefaultDownloadDir;
+    }
+    if (prefDefaultDownloadPath) {
+        prefDefaultDownloadPath.textContent = appPreferences.defaultDownloadDir || 'Nenhum diretório definido';
+    }
+    setTheme(appPreferences.theme || 'light');
 }
 
 function setTheme(theme) {
     document.documentElement.setAttribute('data-theme', theme);
-    updateThemeIcon(theme);
-    localStorage.setItem('wasabi-viewer-theme', theme);
+    // sincronia do switch
+    if (themeSwitch) themeSwitch.checked = theme === 'dark';
+    // persistir no localStorage para compatibilidade
+    try { localStorage.setItem('wasabi-viewer-theme', theme); } catch (_) {}
+    // salvar preferências
+    appPreferences.theme = theme;
+    if (window.electronAPI && window.electronAPI.savePreferences) {
+        window.electronAPI.savePreferences(appPreferences).catch(err => console.error('Erro salvando preferências:', err));
+    }
 }
 
 function toggleTheme() {
     const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
     const newTheme = currentTheme === 'light' ? 'dark' : 'light';
     setTheme(newTheme);
-}
-
-function updateThemeIcon(theme) {
-    const icon = themeToggle.querySelector('i');
-    if (theme === 'dark') {
-        icon.className = 'fas fa-sun';
-        themeToggle.title = 'Alternar para tema claro';
-    } else {
-        icon.className = 'fas fa-moon';
-        themeToggle.title = 'Alternar para tema escuro';
-    }
 }
 
 // Funções de Compartilhamento

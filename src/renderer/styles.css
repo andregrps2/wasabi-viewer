@@ -20,9 +20,10 @@
     --border-color: #dee2e6;
     --border-light: #f1f3f4;
 
-    --accent-primary: #0d6efd; /* azul principal */
-    --accent-hover: #2a84ff;   /* azul hover */
-    --accent-light: rgba(13, 110, 253, 0.12);
+    /* Acentos (Wasabi Green) */
+    --accent-primary: #2BB24C; /* verde principal */
+    --accent-hover: #35C85A;   /* verde hover */
+    --accent-light: rgba(43, 178, 76, 0.15);
 
     --success: #28a745;
     --success-bg: #d4edda;
@@ -49,9 +50,10 @@
     --border-color: #495057;
     --border-light: #343a40;
 
-    --accent-primary: #0d6efd; /* azul principal no dark */
-    --accent-hover: #4ea3ff;   /* azul mais claro no hover */
-    --accent-light: rgba(13, 110, 253, 0.22);
+    /* Acentos (Wasabi Green) no dark */
+    --accent-primary: #2BB24C;
+    --accent-hover: #3AD164;
+    --accent-light: rgba(43, 178, 76, 0.35);
 
     --success: #28a745;
     --success-bg: rgba(40, 167, 69, 0.2);
@@ -106,6 +108,7 @@ body {
     width: 100%;
     max-width: 640px;
     margin: 24px 0;
+    position: relative; /* permite posicionar botão no canto superior direito */
 }
 
 .config-header {
@@ -118,6 +121,29 @@ body {
     font-size: 2.2em;
     margin-bottom: 6px;
 }
+
+/* Bloquear seleção de texto do título (logo + texto) */
+.config-header h1,
+.header-left h1 {
+    user-select: none;
+}
+
+.brand-logo {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 8px;
+    vertical-align: middle;
+}
+
+.brand-logo-img {
+    height: 28px;
+    width: 28px;
+    display: inline-block;
+}
+
+/* versão no header principal pode ser ligeiramente menor */
+.main-header .brand-logo-img { height: 26px; width: 26px; }
 
 /* Menu de ações da tela inicial */
 .menu-actions {
@@ -144,9 +170,10 @@ body {
 }
 
 .saved-configs h3 {
-    color: #333;
+    color: var(--text-primary);
     margin-bottom: 15px;
     font-size: 1.2em;
+    font-weight: 700;
 }
 
 .config-list {
@@ -596,17 +623,14 @@ body {
 
 [data-theme="dark"] .breadcrumb span {
     color: var(--accent-hover);
-    /* Azul claro para melhor contraste */
 }
 
 [data-theme="dark"] .breadcrumb a {
     color: var(--accent-hover);
-    /* Azul para os links também */
 }
 
 [data-theme="dark"] .breadcrumb a:hover {
     color: var(--accent-primary);
-    /* Azul no hover */
 }
 
 /* Lista de Arquivos */
@@ -618,9 +642,18 @@ body {
     overflow: hidden;
 }
 
+/* Layout consistente das colunas da lista */
+:root {
+    --col-name: 2.4fr;
+    --col-size: 160px;
+    --col-date: 180px;
+    --col-actions: 220px;
+}
+
 .file-list-header {
     display: grid;
-    grid-template-columns: 2fr 1fr 1fr 200px;
+    grid-template-columns: var(--col-name) var(--col-size) var(--col-date) var(--col-actions);
+    column-gap: 16px; /* espaçamento entre colunas */
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border-color);
     padding: 15px 20px;
@@ -668,11 +701,13 @@ body {
 
 .file-item {
     display: grid;
-    grid-template-columns: 2fr 1fr 1fr 200px;
+    grid-template-columns: var(--col-name) var(--col-size) var(--col-date) var(--col-actions);
+    column-gap: 16px; /* espaçamento entre colunas */
     padding: 15px 20px;
     border-bottom: 1px solid var(--border-light);
     cursor: pointer;
     transition: background-color 0.2s;
+    align-items: start; /* manter topo alinhado quando houver quebras */
 }
 
 .file-item:hover {
@@ -688,6 +723,7 @@ body {
     align-items: center;
     gap: 10px;
     color: var(--text-primary);
+    min-width: 0; /* permitir encolhimento e quebra do texto */
 }
 
 .file-icon {
@@ -703,10 +739,18 @@ body {
     color: #6c757d;
 }
 
+.file-name span {
+    white-space: normal; /* permitir quebra automática */
+    overflow-wrap: anywhere; /* quebra mesmo sem espaços longos */
+    word-break: break-word; /* quebra palavras muito grandes */
+    line-height: 1.25;
+}
+
 .file-size,
 .file-date {
     color: var(--text-secondary);
     font-size: 14px;
+    white-space: nowrap; /* manter uma linha para tamanho e data */
 }
 
 .file-actions {
@@ -717,6 +761,14 @@ body {
 .file-actions .btn {
     padding: 5px 10px;
     font-size: 12px;
+}
+
+/* Ícone de download em verde Wasabi */
+.btn-download i {
+    color: var(--accent-primary);
+}
+.btn-download:hover i {
+    color: var(--accent-hover);
 }
 
 .loading {
@@ -775,6 +827,121 @@ body {
     width: 90%;
     max-width: 500px;
     box-shadow: 0 20px 40px var(--shadow-hover);
+}
+
+/* Configurações */
+.settings-content {
+    max-width: 760px;
+}
+
+.settings-layout {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    gap: 24px;
+}
+
+.settings-sidebar ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.settings-sidebar li {
+    padding: 10px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    color: var(--text-secondary);
+}
+
+.settings-sidebar li.active,
+.settings-sidebar li:hover {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+}
+
+.settings-section { display: none; }
+.settings-section.active { display: block; }
+
+.setting-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.setting-label {
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.setting-sub {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 8px;
+}
+
+.setting-path {
+    font-size: 12px;
+    color: var(--text-secondary);
+    background: var(--bg-secondary);
+    padding: 6px 8px;
+    border-radius: 6px;
+}
+
+.btn-icon {
+    padding: 8px 10px;
+    min-width: 36px;
+}
+
+.btn-small {
+    padding: 6px 10px;
+    font-size: 12px;
+}
+
+/* Switch (chavinha) para tema */
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 46px;
+    height: 24px;
+}
+
+.switch input { display: none; }
+
+.slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: var(--border-light); /* cor de fundo OFF */
+    border: 1px solid var(--border-light);
+    border-radius: 20px;
+    transition: background .2s ease, border-color .2s ease;
+}
+
+.slider:before {
+    position: absolute;
+    content: "";
+    height: 18px; width: 18px;
+    left: 2px; top: 2px; /* centralizado verticalmente */
+    background: var(--text-primary);
+    border-radius: 50%;
+    transition: transform .2s ease, background .2s ease;
+}
+
+input:checked + .slider {
+    background: var(--accent-primary); /* cor de fundo ON */
+    border-color: var(--accent-primary);
+}
+
+input:checked + .slider:before {
+    transform: translateX(24px); /* deslocamento correto à direita */
+    background: #fff; /* contraste melhor quando ativo */
+}
+
+[data-theme="dark"] .slider:before {
+    background: var(--text-primary);
 }
 
 .modal-header {
@@ -902,8 +1069,8 @@ body {
 /* Notifications */
 .notifications {
     position: fixed;
-    top: 20px;
-    right: 20px;
+    bottom: 20px;
+    left: 20px;
     z-index: 2000;
 }
 
@@ -935,7 +1102,7 @@ body {
 
 @keyframes slideIn {
     from {
-        transform: translateX(100%);
+        transform: translateX(-100%);
         opacity: 0;
     }
 
@@ -959,7 +1126,8 @@ body {
 
     .file-list-header,
     .file-item {
-        grid-template-columns: 2fr 80px 60px;
+        grid-template-columns: 2fr 90px 80px; /* mais espaço nas colunas compactas */
+        column-gap: 12px;
         font-size: 14px;
     }
 
@@ -979,6 +1147,16 @@ body {
 
 .header-left { gap: 12px; }
 .header-right { gap: 10px; }
+
+/* Setas de navegação (flat) ao lado do breadcrumb */
+.main-content .breadcrumb { display: flex; align-items: center; gap: 8px; }
+.nav-arrows { display: flex; gap: 6px; align-items: center; }
+.nav-arrow-btn { width: 28px; height: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border-color); border-radius: 6px; background: transparent; color: var(--text-primary); }
+.nav-arrow-btn:hover { background: var(--bg-tertiary); }
+.nav-arrow-btn[disabled] { opacity: 0.5; cursor: not-allowed; }
+/* Tema escuro: manter contraste */
+[data-theme="dark"] .nav-arrow-btn { color: var(--text-primary); border-color: var(--border-color); }
+[data-theme="dark"] .nav-arrow-btn:hover { background: var(--bg-secondary); }
 
 .main-header .btn {
     padding: 6px 12px;

@@ -13,8 +13,17 @@
     <!-- Tela de Configuração -->
     <div id="config-screen" class="screen active">
         <div class="config-container">
+            <!-- Botão de Configurações na tela inicial -->
+            <button id="settings-btn-config" class="btn btn-secondary btn-icon" title="Configurações" style="position:absolute; top:16px; right:16px;">
+                <i class="fas fa-cog"></i>
+            </button>
             <div class="config-header">
-                <h1><i class="fas fa-cloud"></i> Wasabi Viewer</h1>
+                <h1>
+                    <span class="brand-logo" aria-hidden="true">
+                        <img src="../../green_energy_leaf_renewable_eco.png" alt="Wasabi Logo" class="brand-logo-img">
+                    </span>
+                    Wasabi Viewer
+                </h1>
                 <p>Gerencie conexões com seus buckets Wasabi S3</p>
             </div>
 
@@ -22,9 +31,6 @@
             <div class="menu-actions">
                 <button id="new-config-btn" class="btn btn-primary">
                     <i class="fas fa-plus"></i> Nova Configuração
-                </button>
-                <button id="open-saved-configs-btn" class="btn btn-secondary">
-                    <i class="fas fa-list"></i> Buckets Salvos
                 </button>
             </div>
 
@@ -122,7 +128,12 @@
     <div id="main-screen" class="screen">
         <header class="main-header">
             <div class="header-left">
-                <h1><i class="fas fa-cloud"></i> Wasabi Viewer</h1>
+                <h1>
+                    <span class="brand-logo" aria-hidden="true">
+                        <img src="../../green_energy_leaf_renewable_eco.png" alt="Wasabi Logo" class="brand-logo-img">
+                    </span>
+                    Wasabi Viewer
+                </h1>
                 <div class="bucket-selector">
                     <select id="bucket-select" class="bucket-select">
                         <option value="">Selecione um bucket...</option>
@@ -139,8 +150,8 @@
                     <i class="fas fa-search"></i>
                 </div>
 
-                <button id="theme-toggle" class="btn btn-secondary theme-toggle" title="Alternar Tema">
-                    <i class="fas fa-moon"></i>
+                <button id="settings-btn" class="btn btn-secondary btn-icon" title="Configurações">
+                    <i class="fas fa-cog"></i>
                 </button>
 
                 <button id="refresh-btn" class="btn btn-primary">
@@ -149,9 +160,19 @@
             </div>
         </header>
 
+        
+
         <main class="main-content">
             <!-- Navegação de pastas -->
             <div class="breadcrumb">
+                <div class="nav-arrows" aria-label="Navegação">
+                    <button id="nav-back" class="nav-arrow-btn" title="Voltar" aria-label="Voltar">
+                        <i class="fas fa-arrow-left"></i>
+                    </button>
+                    <button id="nav-forward" class="nav-arrow-btn" title="Avançar" aria-label="Avançar">
+                        <i class="fas fa-arrow-right"></i>
+                    </button>
+                </div>
                 <span id="breadcrumb-path">
                     <i class="fas fa-home"></i> Início
                 </span>
@@ -307,6 +328,50 @@
 
     <!-- Notifications -->
     <div id="notifications" class="notifications"></div>
+
+    <!-- Modal de Configurações (fora de main-screen para funcionar também na tela inicial) -->
+    <div id="settings-modal" class="modal">
+        <div class="modal-content settings-content">
+            <div class="modal-header">
+                <h3>Configurações</h3>
+                <button id="settings-close" class="modal-close" aria-label="Fechar">&times;</button>
+            </div>
+            <div class="settings-layout">
+                <aside class="settings-sidebar">
+                    <ul>
+                        <li class="settings-tab active" data-tab="preferences">Preferências</li>
+                        <li class="settings-tab" data-tab="theme">Tema</li>
+                    </ul>
+                </aside>
+                <section class="settings-body">
+                    <div id="settings-section-preferences" class="settings-section active">
+                        <h4>Preferências</h4>
+                        <div class="setting-item">
+                            <label class="setting-label">
+                                <input type="checkbox" id="pref-use-default-download">
+                                Definir local de download
+                            </label>
+                            <div class="setting-sub">
+                                <div class="setting-path" id="pref-default-download-path">Nenhum diretório definido</div>
+                                <button id="pref-choose-download-dir" class="btn btn-secondary btn-small">Selecionar pasta</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="settings-section-theme" class="settings-section">
+                        <h4>Tema</h4>
+                        <div class="setting-item">
+                            <span class="setting-label">Tema escuro</span>
+                            <label class="switch">
+                                <input type="checkbox" id="theme-switch">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>
 
     <script src="renderer.js"></script>
 </body>
