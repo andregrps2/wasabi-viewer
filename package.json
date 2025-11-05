@@ -1,6 +1,6 @@
 {
   "name": "wasabi-viewer",
-  "version": "1.0.3",
+  "version": "1.0.5",
   "description": "Aplicativo desktop para visualizar e gerenciar arquivos do Wasabi S3",
   "main": "src/main.js",
   "scripts": {
