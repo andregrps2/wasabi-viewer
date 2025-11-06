@@ -41,6 +41,9 @@ function createWindow() {
     width: 1200,
     height: 800,
     autoHideMenuBar: true,
+    show: false, // evitar flicker exibindo somente quando pronto
+    backgroundColor: '#111111', // previne flash branco inicial
+    useContentSize: true,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -50,10 +53,13 @@ function createWindow() {
     icon: resolveAppIcon() || undefined
   });
 
-  // Abrir a janela maximizada por padrão
-  try { mainWindow.maximize(); } catch (_) { }
-
   mainWindow.loadFile(path.join(__dirname, 'renderer/index.html'));
+
+  // Exibir somente quando pronto para reduzir flicadas; maximizar antes de mostrar
+  mainWindow.once('ready-to-show', () => {
+    try { mainWindow.maximize(); } catch (_) { }
+    try { mainWindow.show(); } catch (_) { }
+  });
 
   // Abrir DevTools em modo de desenvolvimento
   if (process.argv.includes('--dev')) {

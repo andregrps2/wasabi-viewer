@@ -209,13 +209,15 @@
             <div class="modal-content">
                 <div class="modal-header">
                     <h3>Download em andamento...</h3>
-                    <div class="modal-actions">
-                        <span id="modal-queue-count" class="modal-queue"></span>
-                    </div>
+                    <div class="modal-actions"></div>
                 </div>
                 <div class="progress-bar">
                     <div id="progress-fill" class="progress-fill"></div>
                     <span id="progress-percent" class="progress-label">0%</span>
+                </div>
+                <div class="progress-filename">
+                    <i class="fas fa-file"></i>
+                    <span id="progress-file-name"></span>
                 </div>
                 <p id="progress-text">Preparando download...</p>
                 <div class="progress-meta" style="margin-top:6px; gap:10px;">
@@ -226,32 +228,19 @@
                     <button id="minimize-download-btn" class="btn btn-secondary btn-compact">Minimizar</button>
                     <button id="cancel-download-btn" class="btn btn-danger btn-compact">Cancelar Download</button>
                 </div>
+
+                <!-- Fila no canto inferior esquerdo com fold clicável -->
+                <div class="modal-queue-wrap">
+                    <span id="modal-queue-count" class="modal-queue"></span>
+                    <span id="queue-popover-toggle" class="queue-arrow" aria-label="Ver fila" aria-expanded="false">
+                        <i class="fas fa-chevron-down"></i>
+                    </span>
+                    <div id="queue-popover" class="queue-popover" role="tooltip" aria-hidden="true"></div>
+                </div>
             </div>
         </div>
 
-        <!-- Modal de Salvar Arquivo -->
-        <div id="save-modal" class="modal">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h3>Salvar arquivo</h3>
-                    <button class="modal-close">&times;</button>
-                </div>
-                <div class="modal-body">
-                    <div class="breadcrumb" id="save-breadcrumb"></div>
-                    <div id="save-dir-list" class="file-list" style="height: 260px; overflow-y:auto; border:1px solid var(--border-light); border-radius:8px;">
-                        <!-- diretórios serão listados aqui -->
-                    </div>
-                    <div class="form-row" style="margin-top:12px;">
-                        <label for="save-file-name">Nome do arquivo</label>
-                        <input id="save-file-name" type="text" placeholder="nome.ext" />
-                    </div>
-                    <div class="form-actions" style="justify-content:center; margin-top:14px;">
-                        <button id="save-confirm-btn" class="btn btn-primary">Salvar aqui</button>
-                        <button id="save-cancel-btn" class="btn btn-secondary">Cancelar</button>
-                    </div>
-                </div>
-            </div>
-        </div>
+        <!-- Modal de Salvar Arquivo foi movido para fora de main-screen -->
         <!-- Modal de Confirmação de Cancelamento -->
         <div id="cancel-confirm-modal" class="modal">
             <div class="modal-content">
@@ -264,6 +253,22 @@
                         <button id="cancel-confirm-yes" class="btn btn-danger">Cancelar somente atual</button>
                         <button id="cancel-confirm-all" class="btn btn-warning">Cancelar toda a fila</button>
                         <button id="cancel-confirm-no" class="btn btn-secondary">Manter</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal de Remoção de item da fila -->
+        <div id="queue-remove-modal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Remover da fila</h3>
+                </div>
+                <div class="modal-body">
+                    <p style="text-align:center;">Remover arquivo da fila da download?</p>
+                    <div class="form-actions" style="justify-content:center; margin-top:14px;">
+                        <button id="queue-remove-yes" class="btn btn-danger">Remover</button>
+                        <button id="queue-remove-no" class="btn btn-secondary">Cancelar</button>
                     </div>
                 </div>
             </div>
@@ -307,6 +312,8 @@
             </div>
         </div>
 
+        <!-- Modal de Erro de Caminho foi movido para fora de main-screen -->
+
         <!-- Modal de Link -->
         <div id="link-modal" class="modal">
             <div class="modal-content">
@@ -333,6 +340,53 @@
 
     <!-- Notifications -->
     <div id="notifications" class="notifications"></div>
+
+    <!-- Modal de Salvar Arquivo (fora de main-screen para também funcionar na tela inicial) -->
+    <div id="save-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Salvar arquivo</h3>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="save-nav-row" style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
+                    <button id="save-nav-back" class="btn btn-secondary btn-compact" title="Voltar">
+                        <i class="fas fa-arrow-left"></i>
+                    </button>
+                    <button id="save-nav-forward" class="btn btn-secondary btn-compact" title="Avançar">
+                        <i class="fas fa-arrow-right"></i>
+                    </button>
+                </div>
+                <div class="breadcrumb" id="save-breadcrumb" contenteditable="true" spellcheck="false" title="Digite um caminho completo e pressione Enter"></div>
+                <div id="save-dir-list" class="file-list" style="height: 260px; overflow-y:auto; border:1px solid var(--border-light); border-radius:8px;">
+                    <!-- diretórios serão listados aqui -->
+                </div>
+                <div class="form-row" id="save-input-row" style="margin-top:12px;">
+                    <label id="save-input-label" for="save-file-name">Nome do arquivo</label>
+                    <input id="save-file-name" type="text" placeholder="nome.ext" />
+                </div>
+                <div class="form-actions" style="justify-content:center; margin-top:14px;">
+                    <button id="save-confirm-btn" class="btn btn-primary">Salvar aqui</button>
+                    <button id="save-cancel-btn" class="btn btn-secondary">Cancelar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Erro de Caminho (fora de main-screen) -->
+    <div id="path-error-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Local não encontrado</h3>
+            </div>
+            <div class="modal-body">
+                <p style="text-align:center;">Não foi possível encontrar o local indicado.</p>
+                <div class="form-actions" style="justify-content:center; margin-top:14px;">
+                    <button id="path-error-ok" class="btn btn-primary">OK</button>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <!-- Modal de Configurações (fora de main-screen para funcionar também na tela inicial) -->
     <div id="settings-modal" class="modal">
@@ -383,9 +437,9 @@
         <div class="mini-header">
             <div class="mini-left">
                 <span class="mini-title">Download em andamento</span>
-                <span id="mini-queue-count" class="mini-queue" aria-live="polite"></span>
             </div>
             <div class="mini-actions">
+                <span id="mini-queue-count" class="mini-queue" aria-live="polite"></span>
                 <button id="mini-restore-btn" class="btn btn-secondary btn-tiny">Restaurar</button>
                 <button id="mini-cancel-btn" class="btn btn-danger btn-tiny">Cancelar</button>
             </div>

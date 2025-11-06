@@ -24,6 +24,7 @@
     "electron": "^27.0.0",
     "electron-builder": "^24.6.4",
     "png-to-ico": "^3.0.1",
+    "serve": "^14.2.5",
     "sharp": "^0.34.4"
   },
   "dependencies": {

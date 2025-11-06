@@ -84,13 +84,43 @@ const miniProgressSize = document.getElementById('mini-progress-size');
 const miniProgressEta = document.getElementById('mini-progress-eta');
 const miniQueueCount = document.getElementById('mini-queue-count');
 const modalQueueCount = document.getElementById('modal-queue-count');
+const progressFileName = document.getElementById('progress-file-name');
+const queuePopover = document.getElementById('queue-popover');
+const queuePopoverToggle = document.getElementById('queue-popover-toggle');
+const modalQueueWrap = document.querySelector('.modal-queue-wrap');
+const queueRemoveModal = document.getElementById('queue-remove-modal');
+const queueRemoveYes = document.getElementById('queue-remove-yes');
+const queueRemoveNo = document.getElementById('queue-remove-no');
+let _queueRemoveIndex = null;
+let _dragIndex = null;
 
 function updateMiniQueueInfo() {
-    if (!miniQueueCount) return;
-    const q = _downloadQueue.length;
-    const label = q > 0 ? `Fila: ${q}` : '';
-    miniQueueCount.textContent = label;
-    if (modalQueueCount) modalQueueCount.textContent = label;
+    const q = Array.isArray(_downloadQueue) ? _downloadQueue.length : 0;
+    const show = q > 0;
+    const labelMini = q > 0 ? `Fila: ${q}` : '';
+    const labelModal = show ? `Fila: ${q}` : '';
+    if (miniQueueCount) miniQueueCount.textContent = labelMini;
+    if (modalQueueCount) modalQueueCount.textContent = labelModal;
+    if (modalQueueWrap) {
+        modalQueueWrap.style.display = show ? 'flex' : 'none';
+        if (!show) {
+            modalQueueWrap.classList.remove('active');
+            if (queuePopoverToggle) {
+                queuePopoverToggle.setAttribute('aria-expanded', 'false');
+                const icon = queuePopoverToggle.querySelector('i');
+                if (icon) {
+                    icon.classList.remove('fa-chevron-up');
+                    icon.classList.add('fa-chevron-down');
+                }
+            }
+        }
+    }
+    // Renderizar o popover de forma assíncrona para evitar travamentos perceptíveis
+    if (typeof window.requestAnimationFrame === 'function') {
+        window.requestAnimationFrame(() => renderQueuePopover());
+    } else {
+        setTimeout(() => renderQueuePopover(), 0);
+    }
 }
 
 function resetProgressUI() {
@@ -114,6 +144,7 @@ function resetProgressUI() {
         if (text) text.textContent = 'Preparando download...';
         if (sizeText) sizeText.textContent = '0 B / 0 B';
         if (etaEl) etaEl.textContent = '—';
+        if (progressFileName) progressFileName.textContent = '';
 
         if (miniProgressFill) {
             miniProgressFill.classList.remove('indeterminate');
@@ -128,6 +159,54 @@ function resetProgressUI() {
         if (miniProgressEta) miniProgressEta.textContent = '—';
     } catch {}
 }
+
+function escapeHtml(str = '') {
+    return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+function renderQueuePopover() {
+    if (!queuePopover) return;
+    try {
+        const q = Array.isArray(_downloadQueue) ? _downloadQueue : [];
+        if (!q.length) {
+            queuePopover.innerHTML = `<div class="queue-title">Fila de downloads</div><div class="empty">Nenhum arquivo na fila</div>`;
+            return;
+        }
+        const items = q.map((item, idx) => {
+            const name = escapeHtml(item && item.fileName ? item.fileName : '(sem nome)');
+            const showUp = idx > 0;
+            const showDown = idx < q.length - 1;
+            const upBtn = showUp ? `
+                        <button class="btn btn-secondary" data-action="up" data-index="${idx}" title="Mover para cima">
+                            <i class="fas fa-arrow-up"></i>
+                        </button>` : '';
+            const downBtn = showDown ? `
+                        <button class="btn btn-secondary" data-action="down" data-index="${idx}" title="Mover para baixo">
+                            <i class="fas fa-arrow-down"></i>
+                        </button>` : '';
+            return `
+                <div class="queue-item" data-index="${idx}">
+                    <i class="fas fa-file"></i>
+                    <span class="name">${name}</span>
+                    <div class="actions">
+                        ${upBtn}
+                        ${downBtn}
+                        <button class="btn btn-danger" data-action="remove" data-index="${idx}" title="Remover da fila">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>`;
+        }).join('');
+        queuePopover.innerHTML = `<div class="queue-title">Fila de downloads</div>${items}`;
+    } catch (e) {
+        queuePopover.innerHTML = `<div class="queue-title">Fila de downloads</div><div class="empty">—</div>`;
+    }
+}
 // Modal de salvar arquivo
 const saveModal = document.getElementById('save-modal');
 const saveBreadcrumb = document.getElementById('save-breadcrumb');
@@ -135,11 +214,17 @@ const saveDirList = document.getElementById('save-dir-list');
 const saveFileNameInput = document.getElementById('save-file-name');
 const saveConfirmBtn = document.getElementById('save-confirm-btn');
 const saveCancelBtn = document.getElementById('save-cancel-btn');
+const saveNavBackBtn = document.getElementById('save-nav-back');
+const saveNavForwardBtn = document.getElementById('save-nav-forward');
+const pathErrorModal = document.getElementById('path-error-modal');
+const pathErrorOkBtn = document.getElementById('path-error-ok');
 
 // Estado do modal de salvar
 let saveCurrentDir = '';
 let pendingDownload = { key: null, name: null };
 let saveModalMode = 'download'; // 'download' | 'chooseDir'
+let saveNavHistory = [];
+let saveNavIndex = -1;
 // Estado de preferências
 let appPreferences = { useDefaultDownloadDir: false, defaultDownloadDir: null, theme: 'light' };
 
@@ -170,6 +255,18 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const text = document.getElementById('progress-text');
                 const sizeText = document.getElementById('progress-size');
                 const percentLabel = document.getElementById('progress-percent');
+                // Se recebemos evento explícito de cancelamento, mostrar notificação mínima e sair cedo.
+                if (data && data.cancelled) {
+                    if (text) text.textContent = 'Download cancelado pelo usuario';
+                    showNotification('Download cancelado pelo usuario', 'info');
+                    _downloadCancelledFlag = true;
+                    return; // evitar atualizações pesadas de UI após cancelamento
+                }
+
+                // Evitar atualizações de UI se não há download ativo ou já foi cancelado
+                if (!_downloadActive || _downloadCancelledFlag) {
+                    return;
+                }
                 // Não forçar visibilidade: respeitar estado atual e o modo minimizado
                 if (_downloadMinimized) {
                     if (downloadMini) downloadMini.classList.add('active');
@@ -319,12 +416,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     if (miniProgressEta) miniProgressEta.textContent = dash;
                 }
 
-                if (data && data.cancelled) {
-                    text.textContent = 'Download cancelado pelo usuario';
-                    showNotification('Download cancelado pelo usuario', 'info');
-                    _downloadCancelledFlag = true;
-                    // Não fechar aqui; performDownload cuidará do encerramento.
-                }
+                // Eventos normais continuam; encerramento e UI são tratados em performDownload
             } catch (err) {
                 console.error('Erro ao processar evento de progresso:', err);
             }
@@ -374,6 +466,18 @@ document.addEventListener('DOMContentLoaded', async () => {
             _downloadMinimized = true;
             if (progressModal) progressModal.classList.remove('active');
             if (downloadMini) downloadMini.classList.add('active');
+            // Fechar a aba da fila ao minimizar
+            if (modalQueueWrap) {
+                modalQueueWrap.classList.remove('active');
+                if (queuePopoverToggle) {
+                    queuePopoverToggle.setAttribute('aria-expanded', 'false');
+                    const icon = queuePopoverToggle.querySelector('i');
+                    if (icon) {
+                        icon.classList.remove('fa-chevron-up');
+                        icon.classList.add('fa-chevron-down');
+                    }
+                }
+            }
         });
     }
 
@@ -383,6 +487,18 @@ document.addEventListener('DOMContentLoaded', async () => {
             _downloadMinimized = false;
             if (downloadMini) downloadMini.classList.remove('active');
             if (progressModal) progressModal.classList.add('active');
+            // Restaurar com a aba da fila fechada por padrão
+            if (modalQueueWrap) {
+                modalQueueWrap.classList.remove('active');
+                if (queuePopoverToggle) {
+                    queuePopoverToggle.setAttribute('aria-expanded', 'false');
+                    const icon = queuePopoverToggle.querySelector('i');
+                    if (icon) {
+                        icon.classList.remove('fa-chevron-up');
+                        icon.classList.add('fa-chevron-down');
+                    }
+                }
+            }
         });
     }
 
@@ -400,44 +516,43 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Confirmar cancelamento
     if (cancelYes) {
-        cancelYes.addEventListener('click', async () => {
+        cancelYes.addEventListener('click', () => {
             try {
                 if (window.electronAPI && typeof window.electronAPI.cancelDownload === 'function') {
-                    await window.electronAPI.cancelDownload();
+                    // Disparar cancelamento sem aguardar para evitar travamento visual
+                    window.electronAPI.cancelDownload();
                 }
             } catch (err) {
                 console.error('Erro ao cancelar download:', err);
                 showNotification('Erro ao cancelar download', 'error');
-            } finally {
-                if (cancelConfirmModal) cancelConfirmModal.classList.remove('active');
-                // também fechar modal de progresso
-                if (progressModal) progressModal.classList.remove('active');
             }
+            // Fechar imediatamente para manter a UI fluida
+            if (cancelConfirmModal) cancelConfirmModal.classList.remove('active');
+            if (progressModal) progressModal.classList.remove('active');
         });
     }
 
     // Cancelar toda a fila
     if (cancelAll) {
-        cancelAll.addEventListener('click', async () => {
+        cancelAll.addEventListener('click', () => {
             try {
-                // cancelar o atual
+                // cancelar o atual (assíncrono, sem aguardar)
                 if (window.electronAPI && typeof window.electronAPI.cancelDownload === 'function') {
-                    await window.electronAPI.cancelDownload();
+                    window.electronAPI.cancelDownload();
                 }
             } catch (err) {
                 console.error('Erro ao cancelar downloads:', err);
                 showNotification('Erro ao cancelar downloads', 'error');
-            } finally {
-                // limpar a fila e atualizar indicadores
-                const removed = _downloadQueue.length;
-                _downloadQueue = [];
-                updateMiniQueueInfo();
-                if (removed > 0) {
-                    showNotification(`Fila cancelada: ${removed} itens removidos`, 'info');
-                }
-                if (cancelConfirmModal) cancelConfirmModal.classList.remove('active');
-                if (progressModal) progressModal.classList.remove('active');
             }
+            // limpar a fila e atualizar indicadores imediatamente
+            const removed = _downloadQueue.length;
+            _downloadQueue = [];
+            updateMiniQueueInfo();
+            if (removed > 0) {
+                showNotification(`Fila cancelada: ${removed} itens removidos`, 'info');
+            }
+            if (cancelConfirmModal) cancelConfirmModal.classList.remove('active');
+            if (progressModal) progressModal.classList.remove('active');
         });
     }
 
@@ -649,9 +764,93 @@ function setupEventListeners() {
 
     // Botões laterais do mouse (Windows): 3 = Back, 4 = Forward
     window.addEventListener('mouseup', (e) => {
-        if (e.button === 3) { e.preventDefault(); goBack(); }
-        if (e.button === 4) { e.preventDefault(); goForward(); }
+        if (e.button === 3) {
+            e.preventDefault();
+            if (saveModal && saveModal.classList.contains('active')) { saveGoBack(); return; }
+            goBack();
+        }
+        if (e.button === 4) {
+            e.preventDefault();
+            if (saveModal && saveModal.classList.contains('active')) { saveGoForward(); return; }
+            goForward();
+        }
     });
+
+    // Toggle da fila (fold) no canto inferior esquerdo
+    if (queuePopoverToggle && modalQueueWrap) {
+        queuePopoverToggle.addEventListener('click', () => {
+            const nowActive = modalQueueWrap.classList.toggle('active');
+            queuePopoverToggle.setAttribute('aria-expanded', String(nowActive));
+            const icon = queuePopoverToggle.querySelector('i');
+            if (icon) {
+                icon.classList.remove('fa-chevron-down', 'fa-chevron-up');
+                icon.classList.add(nowActive ? 'fa-chevron-up' : 'fa-chevron-down');
+            }
+        });
+    }
+
+    // Ações do popover da fila (remover e mover para cima/baixo)
+    if (queuePopover) {
+        queuePopover.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-action]');
+            if (!btn) return;
+            const action = btn.getAttribute('data-action');
+            const index = parseInt(btn.getAttribute('data-index'), 10);
+            if (Number.isNaN(index) || index < 0 || index >= _downloadQueue.length) return;
+
+            if (action === 'remove') {
+                _queueRemoveIndex = index;
+                if (queueRemoveModal) queueRemoveModal.classList.add('active');
+                return;
+            }
+
+            if (action === 'up' && index > 0) {
+                const tmp = _downloadQueue[index - 1];
+                _downloadQueue[index - 1] = _downloadQueue[index];
+                _downloadQueue[index] = tmp;
+                renderQueuePopover();
+                updateMiniQueueInfo();
+                return;
+            }
+
+            if (action === 'down' && index < _downloadQueue.length - 1) {
+                const tmp = _downloadQueue[index + 1];
+                _downloadQueue[index + 1] = _downloadQueue[index];
+                _downloadQueue[index] = tmp;
+                renderQueuePopover();
+                updateMiniQueueInfo();
+                return;
+            }
+        });
+    }
+
+    // Modal de remover item da fila
+    if (queueRemoveYes) {
+        queueRemoveYes.addEventListener('click', () => {
+            if (_queueRemoveIndex != null && _queueRemoveIndex >= 0 && _queueRemoveIndex < _downloadQueue.length) {
+                _downloadQueue.splice(_queueRemoveIndex, 1);
+                _queueRemoveIndex = null;
+                renderQueuePopover();
+                updateMiniQueueInfo();
+            }
+            if (queueRemoveModal) queueRemoveModal.classList.remove('active');
+        });
+    }
+    if (queueRemoveNo) {
+        queueRemoveNo.addEventListener('click', () => {
+            _queueRemoveIndex = null;
+            if (queueRemoveModal) queueRemoveModal.classList.remove('active');
+        });
+    }
+
+    // Acessibilidade básica do popover
+    if (queuePopoverToggle && queuePopover) {
+        const wrap = queuePopoverToggle.parentElement;
+        if (wrap) {
+            wrap.addEventListener('mouseenter', () => { queuePopover.setAttribute('aria-hidden', 'false'); });
+            wrap.addEventListener('mouseleave', () => { queuePopover.setAttribute('aria-hidden', 'true'); });
+        }
+    }
 }
 
 // Configurar eventos dos modais
@@ -672,6 +871,10 @@ function setupModalEvents() {
         saveCancelBtn.addEventListener('click', (e) => {
             e.preventDefault();
             closeModals();
+            // Se veio de Preferências, restaurar o modal de Configurações
+            if (saveModalMode === 'chooseDir' && typeof settingsModal !== 'undefined' && settingsModal) {
+                settingsModal.classList.add('active');
+            }
         });
     }
     if (saveConfirmBtn) {
@@ -689,6 +892,10 @@ function setupModalEvents() {
                 }
                 try { await window.electronAPI.savePreferences(appPreferences); } catch (e) { console.error(e); }
                 closeModals();
+                // Retornar ao modal de Configurações para manter o contexto
+                if (typeof settingsModal !== 'undefined' && settingsModal) {
+                    settingsModal.classList.add('active');
+                }
                 return;
             }
             if (!pendingDownload.key || !pendingDownload.name || !saveCurrentDir) return;
@@ -716,6 +923,62 @@ function setupModalEvents() {
                 e.preventDefault();
                 loadSaveDir(item.dataset.path);
             }
+        });
+    }
+    // Setas de navegação do modal
+    if (saveNavBackBtn) {
+        saveNavBackBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            saveGoBack();
+        });
+    }
+    if (saveNavForwardBtn) {
+        saveNavForwardBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            saveGoForward();
+        });
+    }
+    // Atalhos de teclado para o modal ativo: Alt+Esquerda / Alt+Direita
+    document.addEventListener('keydown', (e) => {
+        if (!(saveModal && saveModal.classList.contains('active'))) return;
+        const isAltLeft = e.altKey && (e.code === 'ArrowLeft' || e.key === 'ArrowLeft');
+        const isAltRight = e.altKey && (e.code === 'ArrowRight' || e.key === 'ArrowRight');
+        if (isAltLeft) { e.preventDefault(); e.stopPropagation(); saveGoBack(); }
+        if (isAltRight) { e.preventDefault(); e.stopPropagation(); saveGoForward(); }
+    });
+
+    // Permitir digitar caminho diretamente na área de breadcrumb (editável)
+    if (saveBreadcrumb) {
+        saveBreadcrumb.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && saveModal && saveModal.classList.contains('active')) {
+                e.preventDefault();
+                const raw = saveBreadcrumb.innerText || '';
+                const targetPath = raw.trim();
+                if (targetPath) {
+                    loadSaveDir(targetPath, { showErrorModal: true });
+                }
+            }
+        });
+        // Ao focar para edição, mostrar o caminho completo atual como texto simples
+        saveBreadcrumb.addEventListener('focus', () => {
+            if (saveCurrentDir) {
+                saveBreadcrumb.textContent = saveCurrentDir;
+            }
+        });
+        // Ao desfocar sem Enter, re-renderizar os breadcrumbs clicáveis
+        saveBreadcrumb.addEventListener('blur', () => {
+            if (saveCurrentDir) {
+                renderSaveBreadcrumb(saveCurrentDir);
+            }
+        });
+    }
+
+    // Modal de erro: retornar para seletor ao confirmar
+    if (pathErrorOkBtn) {
+        pathErrorOkBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (pathErrorModal) pathErrorModal.classList.remove('active');
+            if (saveModal) saveModal.classList.add('active');
         });
     }
 }
@@ -1203,11 +1466,22 @@ async function openSaveModal() {
     try {
         const home = await window.electronAPI.getHomeDir();
         saveCurrentDir = home;
+        // inicializar histórico de navegação do seletor
+        saveNavHistory = [];
+        saveNavIndex = -1;
         await loadSaveDir(home);
         // Modo padrão: download
         saveModalMode = 'download';
         const nameRow = saveFileNameInput?.closest('.form-row');
         if (nameRow) nameRow.style.display = '';
+        const labelEl = document.getElementById('save-input-label');
+        if (labelEl) labelEl.textContent = 'Nome do arquivo';
+        if (saveFileNameInput) {
+            saveFileNameInput.placeholder = 'nome.ext';
+        }
+        if (saveBreadcrumb) {
+            renderSaveBreadcrumb(saveCurrentDir || '');
+        }
         const headerEl = saveModal?.querySelector('.modal-header h3');
         if (headerEl) headerEl.textContent = 'Salvar arquivo';
         if (saveConfirmBtn) saveConfirmBtn.textContent = 'Salvar aqui';
@@ -1222,30 +1496,90 @@ async function openChooseDefaultDirModal() {
     try {
         const home = await window.electronAPI.getHomeDir();
         saveCurrentDir = home;
+        // inicializar histórico de navegação do seletor
+        saveNavHistory = [];
+        saveNavIndex = -1;
+        // Abrir imediatamente o modal para feedback visual
+        if (saveModal) saveModal.classList.add('active');
         await loadSaveDir(home);
         // Modo seleção de diretório para preferências
         saveModalMode = 'chooseDir';
         const nameRow = saveFileNameInput?.closest('.form-row');
         if (nameRow) nameRow.style.display = 'none';
+        if (saveBreadcrumb) {
+            renderSaveBreadcrumb(saveCurrentDir || '');
+        }
         const headerEl = saveModal?.querySelector('.modal-header h3');
         if (headerEl) headerEl.textContent = 'Selecionar diretório de download';
         if (saveConfirmBtn) saveConfirmBtn.textContent = 'Selecionar aqui';
-        if (saveModal) saveModal.classList.add('active');
+        // Manter Configurações abertas; seletor aparece por cima (z-index maior)
     } catch (e) {
         console.error('Erro abrindo modal de diretório:', e);
         showNotification('Não foi possível abrir a seleção de diretório', 'error');
     }
 }
 
-async function loadSaveDir(dirPath) {
+async function loadSaveDir(dirPath, options = {}) {
     try {
         const { base, entries } = await window.electronAPI.listDir(dirPath);
         saveCurrentDir = base;
+        if (saveBreadcrumb) {
+            renderSaveBreadcrumb(base);
+        }
+        // atualizar histórico, a menos que explicitamente desativado
+        if (options.pushHistory !== false) {
+            if (saveNavHistory.length === 0) {
+                saveNavHistory = [base];
+                saveNavIndex = 0;
+            } else if (saveNavHistory[saveNavIndex] !== base) {
+                if (saveNavIndex < saveNavHistory.length - 1) {
+                    saveNavHistory = saveNavHistory.slice(0, saveNavIndex + 1);
+                }
+                saveNavHistory.push(base);
+                saveNavIndex = saveNavHistory.length - 1;
+            }
+            updateSaveNavButtons();
+        }
         renderSaveBreadcrumb(base);
         renderSaveDirEntries(entries);
     } catch (e) {
         console.error('Erro listando diretório:', e);
         showNotification('Erro ao listar diretório: ' + e.message, 'error');
+    }
+}
+
+function updateSaveNavButtons() {
+    if (saveNavBackBtn) {
+        if (saveNavIndex > 0) {
+            saveNavBackBtn.removeAttribute('disabled');
+        } else {
+            saveNavBackBtn.setAttribute('disabled', 'true');
+        }
+    }
+    if (saveNavForwardBtn) {
+        if (saveNavIndex >= 0 && saveNavIndex < saveNavHistory.length - 1) {
+            saveNavForwardBtn.removeAttribute('disabled');
+        } else {
+            saveNavForwardBtn.setAttribute('disabled', 'true');
+        }
+    }
+}
+
+function saveGoBack() {
+    if (saveNavIndex > 0) {
+        saveNavIndex -= 1;
+        const target = saveNavHistory[saveNavIndex];
+        loadSaveDir(target, { pushHistory: false });
+        updateSaveNavButtons();
+    }
+}
+
+function saveGoForward() {
+    if (saveNavIndex >= 0 && saveNavIndex < saveNavHistory.length - 1) {
+        saveNavIndex += 1;
+        const target = saveNavHistory[saveNavIndex];
+        loadSaveDir(target, { pushHistory: false });
+        updateSaveNavButtons();
     }
 }
 
@@ -1323,6 +1657,7 @@ async function performDownload(fileKey, fileName, savePath) {
         showProgressModal();
     }
     resetProgressUI();
+    if (progressFileName) progressFileName.textContent = fileName || '';
 
     try {
         const result = await window.electronAPI.downloadFile(fileKey, fileName, savePath);
@@ -1376,6 +1711,7 @@ function processNextFromQueue() {
         showProgressModal();
     }
     resetProgressUI();
+    if (progressFileName) progressFileName.textContent = next && next.fileName ? next.fileName : '';
     // Executar tarefa
     window.electronAPI.downloadFile(next.fileKey, next.fileName, next.savePath)
         .then(result => {
@@ -1469,6 +1805,18 @@ function showProgressModal() {
     _downloadMinimized = false;
     if (downloadMini) downloadMini.classList.remove('active');
     progressModal.classList.add('active');
+    // Aba da fila fechada por padrão ao mostrar o modal de progresso
+    if (modalQueueWrap) {
+        modalQueueWrap.classList.remove('active');
+        if (queuePopoverToggle) {
+            queuePopoverToggle.setAttribute('aria-expanded', 'false');
+            const icon = queuePopoverToggle.querySelector('i');
+            if (icon) {
+                icon.classList.remove('fa-chevron-up');
+                icon.classList.add('fa-chevron-down');
+            }
+        }
+    }
 }
 
 // Fechar modais
