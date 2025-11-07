@@ -409,16 +409,52 @@ ipcMain.handle('cancel-download', () => {
 
 // Listar diretórios locais para modal customizado
 ipcMain.handle('fs-home-dir', async () => {
+  // Usar origem sintética 'TOP' para exibir pastas superficiais
   try {
-    return os.homedir();
+    return 'TOP';
   } catch (e) {
-    return process.cwd();
+    return 'TOP';
   }
 });
 
 ipcMain.handle('fs-list-dir', async (event, dirPath) => {
   try {
-    const base = dirPath && dirPath.trim() ? dirPath : os.homedir();
+    const isTop = !dirPath || !dirPath.trim() || dirPath === 'TOP';
+    if (isTop) {
+      const topEntries = [];
+      // Enumerar unidades locais (Windows: C:, D:, E:, ...). Em outros SO, incluir raiz.
+      if (process.platform === 'win32') {
+        const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+        for (const l of letters) {
+          const drivePath = `${l}:\\`;
+          try {
+            if (fs.existsSync(drivePath)) {
+              topEntries.push({ name: `Disco Local ${l}:`, path: drivePath, type: 'folder' });
+            }
+          } catch (_) { /* ignore */ }
+        }
+      } else {
+        const rootPath = path.parse(process.cwd()).root || '/';
+        topEntries.push({ name: 'Sistema', path: rootPath, type: 'folder' });
+      }
+      const addIfExists = (label, electronPathKey) => {
+        try {
+          const p = app.getPath(electronPathKey);
+          if (p && fs.existsSync(p)) {
+            topEntries.push({ name: label, path: p, type: 'folder' });
+          }
+        } catch (_) { /* ignore */ }
+      };
+      addIfExists('Downloads', 'downloads');
+      addIfExists('Área de Trabalho', 'desktop');
+      addIfExists('Documentos', 'documents');
+      addIfExists('Imagens', 'pictures');
+      addIfExists('Músicas', 'music');
+      addIfExists('Vídeos', 'videos');
+      return { base: 'TOP', entries: topEntries };
+    }
+
+    const base = dirPath.trim();
     const entries = await fs.promises.readdir(base, { withFileTypes: true });
     const dirs = entries
       .filter(d => d.isDirectory())
@@ -428,6 +464,19 @@ ipcMain.handle('fs-list-dir', async (event, dirPath) => {
   } catch (e) {
     console.error('Erro ao listar diretório:', e);
     return { base: dirPath || '', entries: [], error: e.message };
+  }
+});
+
+// Validar existência e tipo de diretório
+ipcMain.handle('fs-validate-dir', async (event, dirPath) => {
+  try {
+    if (!dirPath || typeof dirPath !== 'string') {
+      return { exists: false, isDirectory: false };
+    }
+    const stats = await fs.promises.stat(dirPath);
+    return { exists: true, isDirectory: stats.isDirectory() };
+  } catch (e) {
+    return { exists: false, isDirectory: false, error: e.message };
   }
 });
 

@@ -323,9 +323,39 @@
                 </div>
                 <div class="modal-body">
                     <div class="link-options">
-                        <button id="signed-link-btn" class="btn btn-primary">
-                            <i class="fas fa-key"></i> Gerar Link Temporário (1h)
+                        <button id="link-15m-btn" class="btn btn-primary btn-compact" title="Gerar link válido por 15 minutos">
+                            <i class="far fa-clock"></i> 15min
                         </button>
+                        <button id="link-1h-btn" class="btn btn-primary btn-compact" title="Gerar link válido por 1 hora">
+                            <i class="far fa-clock"></i> 1h
+                        </button>
+                        <button id="link-24h-btn" class="btn btn-primary btn-compact" title="Gerar link válido por 24 horas">
+                            <i class="far fa-clock"></i> 24h
+                        </button>
+                        <button id="link-custom-btn" class="btn btn-secondary btn-compact" title="Gerar link com validade personalizada">
+                            <i class="fas fa-sliders-h"></i> Personalizado
+                        </button>
+                    </div>
+                    <div id="link-custom" class="link-custom" aria-hidden="true">
+                        <label for="custom-expiry-value" class="sr-only">Válido por</label>
+                        <div class="number-stepper" role="group" aria-label="Definir tempo de validade">
+                            <button id="custom-expiry-dec" class="btn btn-secondary btn-compact" aria-label="Diminuir">
+                                <i class="fas fa-minus"></i>
+                            </button>
+                            <input id="custom-expiry-value" type="number" min="1" max="43200" value="1" inputmode="numeric" />
+                            <button id="custom-expiry-inc" class="btn btn-secondary btn-compact" aria-label="Aumentar">
+                                <i class="fas fa-plus"></i>
+                            </button>
+                        </div>
+                        <select id="custom-expiry-unit" class="select-compact">
+                            <option value="minutes">minutos</option>
+                            <option value="hours" selected>horas</option>
+                            <option value="days">dias</option>
+                        </select>
+                        <button id="link-custom-generate-btn" class="btn btn-primary btn-compact">
+                            <i class="fas fa-key"></i> Gerar Link
+                        </button>
+                        <span class="hint">Limite: até 30 dias</span>
                     </div>
                     <div class="link-result">
                         <textarea id="generated-link" readonly></textarea>

@@ -35,6 +35,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getHomeDir: () => ipcRenderer.invoke('fs-home-dir'),
   listDir: (dirPath) => ipcRenderer.invoke('fs-list-dir', dirPath)
   ,
+  validateDir: (dirPath) => ipcRenderer.invoke('fs-validate-dir', dirPath)
+  ,
   // Preferências
   loadPreferences: () => ipcRenderer.invoke('load-preferences'),
   savePreferences: (preferences) => ipcRenderer.invoke('save-preferences', preferences),

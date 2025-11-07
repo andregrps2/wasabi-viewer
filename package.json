@@ -1,6 +1,6 @@
 {
   "name": "wasabi-viewer",
-  "version": "1.0.9",
+  "version": "1.2.0",
   "description": "Aplicativo desktop para visualizar e gerenciar arquivos do Wasabi S3",
   "main": "src/main.js",
   "scripts": {
@@ -60,6 +60,6 @@
       "uninstallerSidebar": "assets/nsis-uninstaller-sidebar.bmp",
       "installerHeader": "assets/nsis-installer-header.bmp"
     },
-    "buildVersion": "1.0.9"
+    "buildVersion": "1.2"
   }
 }
