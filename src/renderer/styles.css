@@ -241,6 +241,13 @@ body {
     font-size: 12px;
 }
 
+/* Aumento sutil nos botões principais da tela inicial */
+.config-actions .btn-connect,
+.config-actions .btn-delete {
+    padding: 7px 12px;
+    font-size: 13px;
+}
+
 .config-form {
     display: flex;
     flex-direction: column;
@@ -697,6 +704,11 @@ body {
 .file-list {
     height: calc(100% - 60px);
     overflow-y: auto;
+    /* Otimizações de scroll: mover para camada de composição e isolar pintura */
+    will-change: transform;
+    transform: translateZ(0);
+    contain: paint;
+    overscroll-behavior: contain;
 }
 
 .file-item {
@@ -763,6 +775,13 @@ body {
     font-size: 12px;
 }
 
+/* Aumento sutil nos botões de ação por arquivo */
+.file-actions .btn-download,
+.file-actions .btn-link {
+    padding: 7px 12px;
+    font-size: 13px;
+}
+
 /* Ícone de download em verde Wasabi */
 .btn-download i {
     color: var(--accent-primary);
@@ -827,6 +846,7 @@ body {
     width: 90%;
     max-width: 500px;
     box-shadow: 0 20px 40px var(--shadow-hover);
+    position: relative;
 }
 
 /* Configurações */
@@ -950,6 +970,29 @@ input:checked + .slider:before {
     align-items: center;
     margin-bottom: 20px;
 }
+.modal-queue { font-size: 13px; color: var(--text-secondary); }
+.modal-queue-wrap { display: flex; align-items: center; gap: 6px; position: relative; }
+.queue-arrow { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 4px; cursor: pointer; color: var(--text-secondary); transition: color .2s ease, background .2s ease; }
+.queue-arrow:hover { color: var(--accent-primary); background: var(--bg-secondary); }
+.modal-queue-wrap { position: absolute; bottom: 12px; left: 16px; right: 16px; display: none; align-items: center; gap: 8px; z-index: 2100; }
+/* Popover mais largo para acomodar nomes de arquivo grandes */
+/* Largura alinhada ao conteúdo do modal principal */
+.queue-popover { position: absolute; top: calc(100% + 8px); left: 0; width: 100%; min-width: 0; max-width: 100%; background: var(--bg-primary); border: 1px solid var(--border-color); box-shadow: 0 8px 24px var(--shadow-hover); border-radius: 8px; padding: 8px; display: none; z-index: 2200; }
+.modal-queue-wrap.active .queue-popover { display: block; }
+.modal-queue-wrap .modal-queue { color: var(--text-secondary); font-size: 12px; }
+.modal-queue-wrap .queue-arrow { cursor: pointer; color: var(--text-secondary); }
+.modal-queue-wrap .queue-arrow:hover { color: var(--text-primary); }
+.queue-popover .queue-title { font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
+.queue-popover .queue-item { display: flex; align-items: center; gap: 8px; padding: 6px 6px; border-radius: 6px; color: var(--text-primary); }
+.queue-popover .queue-item { will-change: transform; }
+.queue-popover .queue-item i { color: var(--brand-500); }
+.queue-popover .queue-item:hover { background: var(--bg-secondary); }
+.queue-popover .empty { color: var(--text-muted); font-size: 12px; }
+.queue-popover .actions { margin-left: auto; display: inline-flex; gap: 6px; align-items: center; }
+.queue-popover .name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.queue-popover .actions .btn { padding: 4px 8px; font-size: 12px; }
+.queue-popover .actions .btn-danger { background: var(--error-500); border-color: var(--error-500); }
+.queue-popover .actions .btn-danger:hover { background: var(--error-600); border-color: var(--error-600); }
 
 .modal-close {
     background: none;
@@ -962,6 +1005,8 @@ input:checked + .slider:before {
 .link-options {
     display: flex;
     justify-content: center;
+    gap: 8px;
+    flex-wrap: wrap;
     margin-bottom: 20px;
 }
 
@@ -985,6 +1030,64 @@ input:checked + .slider:before {
     color: var(--text-primary);
     resize: vertical;
     margin-bottom: 15px;
+}
+
+.link-custom {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.link-custom.active {
+    display: flex;
+}
+
+.link-custom input[type="number"],
+.link-custom select {
+    padding: 6px 8px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+}
+
+.link-custom .hint {
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+/* Stepper numérico personalizado */
+.number-stepper {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.number-stepper input[type="number"] {
+    width: 90px;
+    text-align: center;
+    font-size: 14px;
+    height: 30px;
+}
+/* Remover spinners nativos para padronizar visual */
+.number-stepper input[type="number"]::-webkit-outer-spin-button,
+.number-stepper input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+.number-stepper input[type="number"] {
+    -moz-appearance: textfield;
+}
+.number-stepper .btn {
+    height: 30px;
+}
+
+/* Select compacto e consistente com tema */
+.link-custom select.select-compact {
+    height: 30px;
+    font-size: 14px;
+    padding: 4px 8px;
 }
 
 /* Progress Bar */
@@ -1066,12 +1169,70 @@ input:checked + .slider:before {
     color: #fff;
 }
 
+/* Ações do progresso (minimizar e cancelar lado a lado) */
+.progress-actions {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 12px;
+}
+.btn-compact {
+    padding: 6px 12px;
+    font-size: 13px;
+}
+
+/* Nome do arquivo em download (modal grande) */
+.progress-filename {
+    margin-top: 8px;
+    color: var(--text-secondary);
+    text-align: center;
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.progress-filename i { margin-right: 6px; color: var(--text-muted); }
+
 /* Notifications */
 .notifications {
     position: fixed;
     bottom: 20px;
     left: 20px;
     z-index: 2000;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+.notifications.centered {
+    top: 50%;
+    left: 50%;
+    bottom: auto;
+    transform: translate(-50%, -50%);
+}
+
+.notifications.centered .notification {
+    justify-content: center;
+    text-align: center;
+}
+
+/* Centralização específica do modal de remoção da fila */
+#queue-remove-modal .modal-content {
+    text-align: center;
+}
+
+#queue-remove-modal .modal-header h3 {
+    width: 100%;
+    text-align: center;
+}
+
+#queue-remove-modal .modal-body {
+    text-align: center;
+}
+
+#queue-remove-modal .form-actions {
+    justify-content: center;
 }
 
 .notification {
@@ -1111,6 +1272,50 @@ input:checked + .slider:before {
         opacity: 1;
     }
 }
+
+/* Mini janela de download (canto inferior direito) */
+.download-mini {
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
+    width: 360px; /* largura levemente maior para melhor leitura */
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px var(--shadow-hover);
+    z-index: 2100;
+    display: none;
+}
+.download-mini.active { display: block; }
+.mini-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px; /* reduzir altura para ficar mais compacto */
+    border-bottom: 1px solid var(--border-light);
+}
+.mini-left { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+.mini-actions { flex-shrink: 0; }
+.mini-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mini-actions .btn { white-space: nowrap; }
+.mini-title { font-weight: 600; color: var(--text-primary); }
+.mini-actions { display: flex; gap: 8px; }
+.btn-tiny {
+    padding: 4px 8px;
+    font-size: 12px;
+}
+.mini-body { padding: 10px 14px 12px 14px; display: grid; row-gap: 10px; }
+.mini-body .progress-bar { margin: 8px 0; }
+.progress-mini .progress-label { font-size: 12px; }
+.mini-meta { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.progress-mini { height: 12px; }
+.mini-meta { font-size: 12px; margin-top: 0; }
+.mini-queue { font-size: 12px; color: var(--accent-primary); background: var(--accent-light); border: 1px solid var(--accent-primary); border-radius: 999px; padding: 2px 8px; font-weight: 600; }
+.mini-actions .mini-queue { margin-right: 8px; }
+.mini-queue:empty { display: none; }
+
+[data-theme="dark"] .download-mini { background: var(--bg-primary); border-color: var(--border-color); }
 
 /* Responsividade */
 @media (max-width: 768px) {
@@ -1217,7 +1422,7 @@ input:checked + .slider:before {
     cursor: pointer;
 }
 #save-dir-list .list-item:hover {
-    background: var(--hover);
+    background: var(--bg-secondary);
 }
 #save-dir-list .icon-folder {
     width: 18px;
@@ -1230,4 +1435,29 @@ input:checked + .slider:before {
     border-radius: 8px;
     background: var(--bg-secondary);
     color: var(--text-primary);
+}
+.modal#save-modal { z-index: 1100; }
+.modal#path-error-modal { z-index: 1200; }
+
+/* Scrollbar global com design Wasabi */
+/* Firefox */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: var(--accent-primary) var(--bg-secondary);
+}
+/* WebKit (Chromium, Electron, Safari) */
+*::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+*::-webkit-scrollbar-track {
+    background: var(--bg-secondary);
+}
+*::-webkit-scrollbar-thumb {
+    background-color: var(--accent-primary);
+    border-radius: 8px;
+    border: 2px solid var(--bg-secondary);
+}
+*::-webkit-scrollbar-thumb:hover {
+    background-color: var(--accent-hover);
 }

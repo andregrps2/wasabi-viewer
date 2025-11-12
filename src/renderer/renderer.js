@@ -21,6 +21,9 @@ let _downloadLastSample = null; // { time: ms, bytes: number }
 let _downloadSpeedBps = null; // smoothed bytes/sec
 let _etaLastUpdateAt = 0; // last ETA label update timestamp
 let _downloadCancelledFlag = false; // track if user cancelled to avoid duplicate messages
+let _downloadMinimized = false; // quando true, manter apenas mini janela ativa
+let _downloadActive = false; // indica se há um download em andamento
+let _downloadQueue = []; // fila de próximos downloads { fileKey, fileName, savePath }
 
 // Elementos DOM
 const configScreen = document.getElementById('config-screen');
@@ -73,6 +76,163 @@ const progressModal = document.getElementById('progress-modal');
 const linkModal = document.getElementById('link-modal');
 const linkResult = document.querySelector('.link-result');
 const generatedLink = document.getElementById('generated-link');
+const linkCustom = document.getElementById('link-custom');
+const customExpiryValue = document.getElementById('custom-expiry-value');
+const customExpiryUnit = document.getElementById('custom-expiry-unit');
+const customExpiryInc = document.getElementById('custom-expiry-inc');
+const customExpiryDec = document.getElementById('custom-expiry-dec');
+// Mini janela de download
+const downloadMini = document.getElementById('download-mini');
+const miniProgressFill = document.getElementById('mini-progress-fill');
+const miniProgressPercent = document.getElementById('mini-progress-percent');
+const miniProgressSize = document.getElementById('mini-progress-size');
+const miniProgressEta = document.getElementById('mini-progress-eta');
+const miniQueueCount = document.getElementById('mini-queue-count');
+const modalQueueCount = document.getElementById('modal-queue-count');
+const progressFileName = document.getElementById('progress-file-name');
+const queuePopover = document.getElementById('queue-popover');
+const queuePopoverToggle = document.getElementById('queue-popover-toggle');
+const modalQueueWrap = document.querySelector('.modal-queue-wrap');
+const queueRemoveModal = document.getElementById('queue-remove-modal');
+const queueRemoveYes = document.getElementById('queue-remove-yes');
+const queueRemoveNo = document.getElementById('queue-remove-no');
+let _queueRemoveIndex = null;
+let _dragIndex = null;
+// Notificações: controle de simultâneas e fila
+let _notifActiveCount = 0;
+let _notifPending = [];
+
+function updateMiniQueueInfo(options = {}) {
+    const q = Array.isArray(_downloadQueue) ? _downloadQueue.length : 0;
+    const show = q > 0;
+    const labelMini = q > 0 ? `Fila: ${q}` : '';
+    const labelModal = show ? `Fila: ${q}` : '';
+    if (miniQueueCount) miniQueueCount.textContent = labelMini;
+    if (modalQueueCount) modalQueueCount.textContent = labelModal;
+    if (modalQueueWrap) {
+        modalQueueWrap.style.display = show ? 'flex' : 'none';
+        if (!show) {
+            modalQueueWrap.classList.remove('active');
+            if (queuePopoverToggle) {
+                queuePopoverToggle.setAttribute('aria-expanded', 'false');
+                const icon = queuePopoverToggle.querySelector('i');
+                if (icon) {
+                    icon.classList.remove('fa-chevron-up');
+                    icon.classList.add('fa-chevron-down');
+                }
+            }
+        }
+    }
+    // Renderizar o popover de forma assíncrona para evitar travamentos perceptíveis
+    const skipRender = options && options.skipRender === true;
+    if (!skipRender) {
+        if (typeof window.requestAnimationFrame === 'function') {
+            window.requestAnimationFrame(() => renderQueuePopover());
+        } else {
+            setTimeout(() => renderQueuePopover(), 0);
+        }
+    }
+}
+
+function resetProgressUI() {
+    try {
+        const fill = document.getElementById('progress-fill');
+        const text = document.getElementById('progress-text');
+        const sizeText = document.getElementById('progress-size');
+        const percentLabel = document.getElementById('progress-percent');
+        const etaEl = document.getElementById('progress-eta');
+
+        // Reset sem animação de regressão
+        if (fill) {
+            fill.classList.remove('indeterminate');
+            const prevTransition = fill.style.transition;
+            fill.style.transition = 'none';
+            fill.style.width = '0%';
+            void fill.offsetHeight; // força reflow
+            fill.style.transition = prevTransition || '';
+        }
+        if (percentLabel) percentLabel.textContent = '0%';
+        if (text) text.textContent = 'Preparando download...';
+        if (sizeText) sizeText.textContent = '0 B / 0 B';
+        if (etaEl) etaEl.textContent = '—';
+        if (progressFileName) progressFileName.textContent = '';
+
+        if (miniProgressFill) {
+            miniProgressFill.classList.remove('indeterminate');
+            const prevMiniTransition = miniProgressFill.style.transition;
+            miniProgressFill.style.transition = 'none';
+            miniProgressFill.style.width = '0%';
+            void miniProgressFill.offsetHeight; // reflow
+            miniProgressFill.style.transition = prevMiniTransition || '';
+        }
+        if (miniProgressPercent) miniProgressPercent.textContent = '0%';
+        if (miniProgressSize) miniProgressSize.textContent = '0 B / 0 B';
+        if (miniProgressEta) miniProgressEta.textContent = '—';
+    } catch {}
+}
+
+function escapeHtml(str = '') {
+    return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+function renderQueuePopover() {
+    if (!queuePopover) return;
+    try {
+        const q = Array.isArray(_downloadQueue) ? _downloadQueue : [];
+        if (!q.length) {
+            queuePopover.innerHTML = `<div class="queue-title">Fila de downloads</div><div class="empty">Nenhum arquivo na fila</div>`;
+            return;
+        }
+        const items = q.map((item, idx) => {
+            const name = escapeHtml(item && item.fileName ? item.fileName : '(sem nome)');
+            const showUp = idx > 0;
+            const showDown = idx < q.length - 1;
+            const upBtn = showUp ? `
+                        <button class="btn btn-secondary" data-action="up" data-index="${idx}" title="Mover para cima">
+                            <i class="fas fa-arrow-up"></i>
+                        </button>` : '';
+            const downBtn = showDown ? `
+                        <button class="btn btn-secondary" data-action="down" data-index="${idx}" title="Mover para baixo">
+                            <i class="fas fa-arrow-down"></i>
+                        </button>` : '';
+            return `
+                <div class="queue-item" data-index="${idx}" data-key="${escapeHtml(item && item.fileKey ? item.fileKey : String(idx))}">
+                    <i class="fas fa-file"></i>
+                    <span class="name">${name}</span>
+                    <div class="actions">
+                        ${upBtn}
+                        ${downBtn}
+                        <button class="btn btn-danger" data-action="remove" data-index="${idx}" title="Remover da fila">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>`;
+        }).join('');
+        queuePopover.innerHTML = `<div class="queue-title">Fila de downloads</div>${items}`;
+    } catch (e) {
+        queuePopover.innerHTML = `<div class="queue-title">Fila de downloads</div><div class="empty">—</div>`;
+    }
+}
+
+// Utilitário: posições dos itens da fila (para FLIP)
+function getQueueItemPositions() {
+    const map = {};
+    if (!queuePopover) return map;
+    const items = queuePopover.querySelectorAll('.queue-item');
+    items.forEach(el => {
+        const key = el.getAttribute('data-key');
+        if (key) {
+            const rect = el.getBoundingClientRect();
+            map[key] = rect.top;
+        }
+    });
+    return map;
+}
 // Modal de salvar arquivo
 const saveModal = document.getElementById('save-modal');
 const saveBreadcrumb = document.getElementById('save-breadcrumb');
@@ -80,11 +240,17 @@ const saveDirList = document.getElementById('save-dir-list');
 const saveFileNameInput = document.getElementById('save-file-name');
 const saveConfirmBtn = document.getElementById('save-confirm-btn');
 const saveCancelBtn = document.getElementById('save-cancel-btn');
+const saveNavBackBtn = document.getElementById('save-nav-back');
+const saveNavForwardBtn = document.getElementById('save-nav-forward');
+const pathErrorModal = document.getElementById('path-error-modal');
+const pathErrorOkBtn = document.getElementById('path-error-ok');
 
 // Estado do modal de salvar
 let saveCurrentDir = '';
 let pendingDownload = { key: null, name: null };
 let saveModalMode = 'download'; // 'download' | 'chooseDir'
+let saveNavHistory = [];
+let saveNavIndex = -1;
 // Estado de preferências
 let appPreferences = { useDefaultDownloadDir: false, defaultDownloadDir: null, theme: 'light' };
 
@@ -115,8 +281,23 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const text = document.getElementById('progress-text');
                 const sizeText = document.getElementById('progress-size');
                 const percentLabel = document.getElementById('progress-percent');
-                // Mostrar modal de progresso
-                progressModal.classList.add('active');
+                // Se recebemos evento explícito de cancelamento, mostrar notificação mínima e sair cedo.
+                if (data && data.cancelled) {
+                    if (text) text.textContent = 'Download cancelado pelo usuario';
+                    showNotification('Download cancelado pelo usuario', 'info');
+                    _downloadCancelledFlag = true;
+                    return; // evitar atualizações pesadas de UI após cancelamento
+                }
+
+                // Evitar atualizações de UI se não há download ativo ou já foi cancelado
+                if (!_downloadActive || _downloadCancelledFlag) {
+                    return;
+                }
+                // Não forçar visibilidade: respeitar estado atual e o modo minimizado
+                if (_downloadMinimized) {
+                    if (downloadMini) downloadMini.classList.add('active');
+                    if (progressModal) progressModal.classList.remove('active');
+                }
                 // If we have total bytes, compute an accurate percentage.
                 if (data && (data.totalBytes || data.totalBytes === 0)) {
                     const total = Number(data.totalBytes) || 0;
@@ -129,6 +310,14 @@ document.addEventListener('DOMContentLoaded', async () => {
                     if (percentLabel) percentLabel.textContent = `${percentDisplay}%`;
                     text.textContent = `Baixando...`;
                     sizeText.textContent = `${formatFileSize(downloaded)} / ${formatFileSize(total)}`;
+
+                    // Atualizar mini janela
+                    if (miniProgressFill) {
+                        miniProgressFill.classList.remove('indeterminate');
+                        miniProgressFill.style.width = `${percent}%`;
+                    }
+                    if (miniProgressPercent) miniProgressPercent.textContent = `${percentDisplay}%`;
+                    if (miniProgressSize) miniProgressSize.textContent = `${formatFileSize(downloaded)} / ${formatFileSize(total)}`;
 
                     // ETA calculation
                     try {
@@ -152,24 +341,29 @@ document.addEventListener('DOMContentLoaded', async () => {
                             const etaEl = document.getElementById('progress-eta');
                             const now2 = Date.now();
                             if (!_etaLastUpdateAt || (now2 - _etaLastUpdateAt) >= 800) {
-                                etaEl.textContent = `Tempo estimado: ${formatTimeRemaining(remainingSec)}`;
+                                const etaText = `Tempo estimado: ${formatTimeRemaining(remainingSec)}`;
+                                etaEl.textContent = etaText;
+                                if (miniProgressEta) miniProgressEta.textContent = etaText;
                                 _etaLastUpdateAt = now2;
                             }
                         } else {
-                            document.getElementById('progress-eta').textContent = `Tempo estimado: —`;
+                            const dash = `Tempo estimado: —`;
+                            document.getElementById('progress-eta').textContent = dash;
+                            if (miniProgressEta) miniProgressEta.textContent = dash;
                         }
                     } catch (e) {
-                        document.getElementById('progress-eta').textContent = `Tempo estimado: —`;
+                        const dash = `Tempo estimado: —`;
+                        document.getElementById('progress-eta').textContent = dash;
+                        if (miniProgressEta) miniProgressEta.textContent = dash;
                     }
 
                     if (percent >= 100) {
                         text.textContent = 'Download concluído';
-                        setTimeout(() => {
-                            closeModals();
-                            _downloadLastSample = null;
-                            _downloadSpeedBps = null;
-                            _etaLastUpdateAt = 0;
-                        }, 1200);
+                        // Não fechar aqui: deixar o fluxo de performDownload/processNextFromQueue
+                        // conduzir encerramento da UI e início do próximo item.
+                        _downloadLastSample = null;
+                        _downloadSpeedBps = null;
+                        _etaLastUpdateAt = 0;
                     }
                 } else if (data && (data.percent !== null && data.percent !== undefined)) {
                     // Fallback: percent provided by main
@@ -179,6 +373,14 @@ document.addEventListener('DOMContentLoaded', async () => {
                     fill.style.width = `${percent}%`;
                     text.textContent = `Progresso: ${percentDisplay}%`;
                     sizeText.textContent = data.downloadedBytes ? `${formatFileSize(data.downloadedBytes)} / ?` : '';
+
+                    // Atualizar mini janela
+                    if (miniProgressFill) {
+                        miniProgressFill.classList.remove('indeterminate');
+                        miniProgressFill.style.width = `${percent}%`;
+                    }
+                    if (miniProgressPercent) miniProgressPercent.textContent = `${percentDisplay}%`;
+                    if (miniProgressSize) miniProgressSize.textContent = data.downloadedBytes ? `${formatFileSize(data.downloadedBytes)} / ?` : '';
 
                     // update sample for speed estimation when downloadedBytes provided
                     if (data.downloadedBytes) {
@@ -197,17 +399,16 @@ document.addEventListener('DOMContentLoaded', async () => {
                             }
                         }
                         _downloadLastSample = { time: now, bytes: downloaded };
-                        document.getElementById('progress-eta').textContent = `Tempo estimado: —`;
+                        const dash = `Tempo estimado: —`;
+                        document.getElementById('progress-eta').textContent = dash;
+                        if (miniProgressEta) miniProgressEta.textContent = dash;
                     }
 
                     if (percent >= 100) {
                         text.textContent = 'Download concluído';
-                        setTimeout(() => {
-                            closeModals();
-                            _downloadLastSample = null;
-                            _downloadSpeedBps = null;
-                            _etaLastUpdateAt = 0;
-                        }, 1200);
+                        _downloadLastSample = null;
+                        _downloadSpeedBps = null;
+                        _etaLastUpdateAt = 0;
                     }
                 } else if (data && data.downloadedBytes) {
                     // Unknown total size: show downloaded bytes and indeterminate animation
@@ -215,6 +416,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                     const downloaded = Number(data.downloadedBytes) || 0;
                     text.textContent = `Baixados: ${formatFileSize(downloaded)}`;
                     sizeText.textContent = `${formatFileSize(downloaded)} / ?`;
+
+                    // Atualizar mini janela
+                    if (miniProgressFill) miniProgressFill.classList.add('indeterminate');
+                    if (miniProgressPercent) miniProgressPercent.textContent = '';
+                    if (miniProgressSize) miniProgressSize.textContent = `${formatFileSize(downloaded)} / ?`;
 
                     // update sample for speed estimation
                     const now = Date.now();
@@ -231,15 +437,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                         }
                     }
                     _downloadLastSample = { time: now, bytes: downloaded };
-                    document.getElementById('progress-eta').textContent = `Tempo estimado: —`;
+                    const dash = `Tempo estimado: —`;
+                    document.getElementById('progress-eta').textContent = dash;
+                    if (miniProgressEta) miniProgressEta.textContent = dash;
                 }
 
-                if (data && data.cancelled) {
-                    text.textContent = 'Download cancelado pelo usuario';
-                    showNotification('Download cancelado pelo usuario', 'info');
-                    _downloadCancelledFlag = true;
-                    setTimeout(() => closeModals(), 1200);
-                }
+                // Eventos normais continuam; encerramento e UI são tratados em performDownload
             } catch (err) {
                 console.error('Erro ao processar evento de progresso:', err);
             }
@@ -250,11 +453,29 @@ document.addEventListener('DOMContentLoaded', async () => {
     const cancelBtn = document.getElementById('cancel-download-btn');
     const cancelConfirmModal = document.getElementById('cancel-confirm-modal');
     const cancelYes = document.getElementById('cancel-confirm-yes');
+    const cancelAll = document.getElementById('cancel-confirm-all');
     const cancelNo = document.getElementById('cancel-confirm-no');
+    // Botões da mini janela
+    const minimizeDownloadBtn = document.getElementById('minimize-download-btn');
+    const miniRestoreBtn = document.getElementById('mini-restore-btn');
+    const miniCancelBtn = document.getElementById('mini-cancel-btn');
+
+    // Preparar modal de confirmação de cancelamento conforme estado da fila
+    function prepareCancelConfirmModal() {
+        if (!cancelConfirmModal) return;
+        const hasQueue = Array.isArray(_downloadQueue) && _downloadQueue.length > 0;
+        if (cancelAll) {
+            cancelAll.style.display = hasQueue ? '' : 'none';
+        }
+        if (cancelYes) {
+            cancelYes.textContent = hasQueue ? 'Cancelar somente atual' : 'Sim, cancelar download';
+        }
+    }
 
     if (cancelBtn) {
         cancelBtn.addEventListener('click', () => {
             if (cancelConfirmModal) {
+                prepareCancelConfirmModal();
                 cancelConfirmModal.classList.add('active');
             } else {
                 // fallback: enviar cancel direto
@@ -265,21 +486,99 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
+    // Minimizar modal de progresso para mini janela
+    if (minimizeDownloadBtn) {
+        minimizeDownloadBtn.addEventListener('click', () => {
+            _downloadMinimized = true;
+            if (progressModal) progressModal.classList.remove('active');
+            if (downloadMini) downloadMini.classList.add('active');
+            // Fechar a aba da fila ao minimizar
+            if (modalQueueWrap) {
+                modalQueueWrap.classList.remove('active');
+                if (queuePopoverToggle) {
+                    queuePopoverToggle.setAttribute('aria-expanded', 'false');
+                    const icon = queuePopoverToggle.querySelector('i');
+                    if (icon) {
+                        icon.classList.remove('fa-chevron-up');
+                        icon.classList.add('fa-chevron-down');
+                    }
+                }
+            }
+        });
+    }
+
+    // Restaurar a partir da mini janela
+    if (miniRestoreBtn) {
+        miniRestoreBtn.addEventListener('click', () => {
+            _downloadMinimized = false;
+            if (downloadMini) downloadMini.classList.remove('active');
+            if (progressModal) progressModal.classList.add('active');
+            // Restaurar com a aba da fila fechada por padrão
+            if (modalQueueWrap) {
+                modalQueueWrap.classList.remove('active');
+                if (queuePopoverToggle) {
+                    queuePopoverToggle.setAttribute('aria-expanded', 'false');
+                    const icon = queuePopoverToggle.querySelector('i');
+                    if (icon) {
+                        icon.classList.remove('fa-chevron-up');
+                        icon.classList.add('fa-chevron-down');
+                    }
+                }
+            }
+        });
+    }
+
+    // Cancelar a partir da mini janela
+    if (miniCancelBtn) {
+        miniCancelBtn.addEventListener('click', () => {
+            if (cancelConfirmModal) {
+                prepareCancelConfirmModal();
+                cancelConfirmModal.classList.add('active');
+            } else if (window.electronAPI && typeof window.electronAPI.cancelDownload === 'function') {
+                window.electronAPI.cancelDownload();
+            }
+        });
+    }
+
     // Confirmar cancelamento
     if (cancelYes) {
-        cancelYes.addEventListener('click', async () => {
+        cancelYes.addEventListener('click', () => {
             try {
                 if (window.electronAPI && typeof window.electronAPI.cancelDownload === 'function') {
-                    await window.electronAPI.cancelDownload();
+                    // Disparar cancelamento sem aguardar para evitar travamento visual
+                    window.electronAPI.cancelDownload();
                 }
             } catch (err) {
                 console.error('Erro ao cancelar download:', err);
                 showNotification('Erro ao cancelar download', 'error');
-            } finally {
-                if (cancelConfirmModal) cancelConfirmModal.classList.remove('active');
-                // também fechar modal de progresso
-                if (progressModal) progressModal.classList.remove('active');
             }
+            // Fechar imediatamente para manter a UI fluida
+            if (cancelConfirmModal) cancelConfirmModal.classList.remove('active');
+            if (progressModal) progressModal.classList.remove('active');
+        });
+    }
+
+    // Cancelar toda a fila
+    if (cancelAll) {
+        cancelAll.addEventListener('click', () => {
+            try {
+                // cancelar o atual (assíncrono, sem aguardar)
+                if (window.electronAPI && typeof window.electronAPI.cancelDownload === 'function') {
+                    window.electronAPI.cancelDownload();
+                }
+            } catch (err) {
+                console.error('Erro ao cancelar downloads:', err);
+                showNotification('Erro ao cancelar downloads', 'error');
+            }
+            // limpar a fila e atualizar indicadores imediatamente
+            const removed = _downloadQueue.length;
+            _downloadQueue = [];
+            updateMiniQueueInfo();
+            if (removed > 0) {
+                showNotification(`Fila cancelada: ${removed} itens removidos`, 'info');
+            }
+            if (cancelConfirmModal) cancelConfirmModal.classList.remove('active');
+            if (progressModal) progressModal.classList.remove('active');
         });
     }
 
@@ -491,36 +790,256 @@ function setupEventListeners() {
 
     // Botões laterais do mouse (Windows): 3 = Back, 4 = Forward
     window.addEventListener('mouseup', (e) => {
-        if (e.button === 3) { e.preventDefault(); goBack(); }
-        if (e.button === 4) { e.preventDefault(); goForward(); }
+        if (e.button === 3) {
+            e.preventDefault();
+            if (saveModal && saveModal.classList.contains('active')) { saveGoBack(); return; }
+            goBack();
+        }
+        if (e.button === 4) {
+            e.preventDefault();
+            if (saveModal && saveModal.classList.contains('active')) { saveGoForward(); return; }
+            goForward();
+        }
     });
+
+    // Toggle da fila (fold) no canto inferior esquerdo
+    if (queuePopoverToggle && modalQueueWrap) {
+        queuePopoverToggle.addEventListener('click', () => {
+            const nowActive = modalQueueWrap.classList.toggle('active');
+            queuePopoverToggle.setAttribute('aria-expanded', String(nowActive));
+            const icon = queuePopoverToggle.querySelector('i');
+            if (icon) {
+                icon.classList.remove('fa-chevron-down', 'fa-chevron-up');
+                icon.classList.add(nowActive ? 'fa-chevron-up' : 'fa-chevron-down');
+            }
+        });
+    }
+
+    // Ações do popover da fila (remover e mover para cima/baixo)
+    if (queuePopover) {
+        queuePopover.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-action]');
+            if (!btn) return;
+            const action = btn.getAttribute('data-action');
+            const index = parseInt(btn.getAttribute('data-index'), 10);
+            if (Number.isNaN(index) || index < 0 || index >= _downloadQueue.length) return;
+
+            if (action === 'remove') {
+                _queueRemoveIndex = index;
+                if (queueRemoveModal) queueRemoveModal.classList.add('active');
+                return;
+            }
+
+            if (action === 'up' && index > 0) {
+                const before = getQueueItemPositions();
+                const tmp = _downloadQueue[index - 1];
+                _downloadQueue[index - 1] = _downloadQueue[index];
+                _downloadQueue[index] = tmp;
+                renderQueuePopover();
+                updateMiniQueueInfo({ skipRender: true });
+                // Aplicar FLIP na próxima frame (após render agendado)
+                if (typeof window.requestAnimationFrame === 'function') {
+                    window.requestAnimationFrame(() => {
+                        const items = queuePopover.querySelectorAll('.queue-item');
+                        items.forEach(el => {
+                            const key = el.getAttribute('data-key');
+                            if (!key || !(key in before)) return;
+                            const afterTop = el.getBoundingClientRect().top;
+                            const deltaY = before[key] - afterTop;
+                            if (deltaY !== 0) {
+                                // Passo 1: aplicar deslocamento sem transição e forçar reflow
+                                el.style.transition = 'none';
+                                el.style.transform = `translateY(${deltaY}px)`;
+                                void el.offsetHeight;
+                                // Passo 2: animar para posição final
+                                el.style.transition = 'transform 200ms ease';
+                                el.style.transform = 'translateY(0)';
+                                el.addEventListener('transitionend', () => {
+                                    el.style.transform = '';
+                                    el.style.transition = '';
+                                }, { once: true });
+                            }
+                        });
+                    });
+                }
+                return;
+            }
+
+            if (action === 'down' && index < _downloadQueue.length - 1) {
+                const before = getQueueItemPositions();
+                const tmp = _downloadQueue[index + 1];
+                _downloadQueue[index + 1] = _downloadQueue[index];
+                _downloadQueue[index] = tmp;
+                renderQueuePopover();
+                updateMiniQueueInfo({ skipRender: true });
+                // Aplicar FLIP na próxima frame (após render agendado)
+                if (typeof window.requestAnimationFrame === 'function') {
+                    window.requestAnimationFrame(() => {
+                        const items = queuePopover.querySelectorAll('.queue-item');
+                        items.forEach(el => {
+                            const key = el.getAttribute('data-key');
+                            if (!key || !(key in before)) return;
+                            const afterTop = el.getBoundingClientRect().top;
+                            const deltaY = before[key] - afterTop;
+                            if (deltaY !== 0) {
+                                el.style.transition = 'none';
+                                el.style.transform = `translateY(${deltaY}px)`;
+                                void el.offsetHeight;
+                                el.style.transition = 'transform 200ms ease';
+                                el.style.transform = 'translateY(0)';
+                                el.addEventListener('transitionend', () => {
+                                    el.style.transform = '';
+                                    el.style.transition = '';
+                                }, { once: true });
+                            }
+                        });
+                    });
+                }
+                return;
+            }
+        });
+    }
+
+    // Modal de remover item da fila
+    if (queueRemoveYes) {
+        queueRemoveYes.addEventListener('click', () => {
+            if (_queueRemoveIndex != null && _queueRemoveIndex >= 0 && _queueRemoveIndex < _downloadQueue.length) {
+                _downloadQueue.splice(_queueRemoveIndex, 1);
+                _queueRemoveIndex = null;
+                renderQueuePopover();
+                updateMiniQueueInfo({ skipRender: true });
+                // Notificação padrão no canto inferior esquerdo
+                showNotification('Arquivo removido da fila', 'info');
+            }
+            if (queueRemoveModal) queueRemoveModal.classList.remove('active');
+        });
+    }
+    if (queueRemoveNo) {
+        queueRemoveNo.addEventListener('click', () => {
+            _queueRemoveIndex = null;
+            if (queueRemoveModal) queueRemoveModal.classList.remove('active');
+        });
+    }
+
+    // Acessibilidade básica do popover
+    if (queuePopoverToggle && queuePopover) {
+        const wrap = queuePopoverToggle.parentElement;
+        if (wrap) {
+            wrap.addEventListener('mouseenter', () => { queuePopover.setAttribute('aria-hidden', 'false'); });
+            wrap.addEventListener('mouseleave', () => { queuePopover.setAttribute('aria-hidden', 'true'); });
+        }
+    }
 }
 
 // Configurar eventos dos modais
 function setupModalEvents() {
     // Fechar modais
     document.addEventListener('click', (e) => {
-        if (e.target.classList.contains('modal') || e.target.classList.contains('modal-close')) {
+        const isCloseBtn = e.target.classList.contains('modal-close');
+        const isOverlay = e.target.classList.contains('modal');
+        if (isCloseBtn) {
+            closeModals();
+            return;
+        }
+        if (isOverlay) {
+            const modalId = e.target.id;
+            // Não fechar ao clicar fora nas janelas de Download, Link e seleção de diretório
+            if (
+                modalId === 'progress-modal' ||
+                modalId === 'link-modal' ||
+                (modalId === 'save-modal' && saveModalMode === 'chooseDir')
+            ) {
+                return;
+            }
             closeModals();
         }
     });
 
     // Botões de link
-    document.getElementById('signed-link-btn').addEventListener('click', () => generateLink('signed'));
-    document.getElementById('copy-link-btn').addEventListener('click', copyLink);
+    const btn15m = document.getElementById('link-15m-btn');
+    const btn1h = document.getElementById('link-1h-btn');
+    const btn24h = document.getElementById('link-24h-btn');
+    const btnCustom = document.getElementById('link-custom-btn');
+    const btnCustomGen = document.getElementById('link-custom-generate-btn');
+
+    if (btn15m) btn15m.addEventListener('click', () => generateLink(15 * 60));
+    if (btn1h) btn1h.addEventListener('click', () => generateLink(60 * 60));
+    if (btn24h) btn24h.addEventListener('click', () => generateLink(24 * 60 * 60));
+    if (btnCustom && linkCustom) {
+        btnCustom.addEventListener('click', () => {
+            const isActive = linkCustom.classList.contains('active');
+            if (!isActive) {
+                linkCustom.classList.add('active');
+                linkCustom.setAttribute('aria-hidden', 'false');
+            } else {
+                linkCustom.classList.remove('active');
+                linkCustom.setAttribute('aria-hidden', 'true');
+            }
+        });
+    }
+    if (btnCustomGen) {
+        btnCustomGen.addEventListener('click', () => {
+            const rawVal = Number(customExpiryValue?.value || 0);
+            const unit = customExpiryUnit?.value || 'hours';
+            if (!rawVal || rawVal <= 0) {
+                showNotification('Informe um valor válido para a validade.', 'warning');
+                return;
+            }
+            // Máximo 30 dias
+            let seconds = 0;
+            if (unit === 'minutes') seconds = rawVal * 60;
+            else if (unit === 'hours') seconds = rawVal * 60 * 60;
+            else seconds = rawVal * 24 * 60 * 60; // days
+
+            const maxSeconds = 30 * 24 * 60 * 60;
+            if (seconds > maxSeconds) {
+                showNotification('Validade máxima permitida é de 30 dias.', 'warning');
+                return;
+            }
+            generateLink(seconds);
+        });
+    }
+
+    // Stepper customizado para validade (incremento/decremento)
+    const clamp = (val, min, max) => Math.max(min, Math.min(max, val));
+    if (customExpiryInc && customExpiryValue) {
+        customExpiryInc.addEventListener('click', () => {
+            const min = Number(customExpiryValue.min || 1);
+            const max = Number(customExpiryValue.max || 43200);
+            const current = Number(customExpiryValue.value || min);
+            customExpiryValue.value = clamp(current + 1, min, max);
+        });
+    }
+    if (customExpiryDec && customExpiryValue) {
+        customExpiryDec.addEventListener('click', () => {
+            const min = Number(customExpiryValue.min || 1);
+            const max = Number(customExpiryValue.max || 43200);
+            const current = Number(customExpiryValue.value || min);
+            customExpiryValue.value = clamp(current - 1, min, max);
+        });
+    }
+    const copyBtn = document.getElementById('copy-link-btn');
+    if (copyBtn) copyBtn.addEventListener('click', copyLink);
 
     // Modal de salvar arquivo
     if (saveCancelBtn) {
         saveCancelBtn.addEventListener('click', (e) => {
             e.preventDefault();
             closeModals();
+            // Se veio de Preferências, restaurar o modal de Configurações
+            if (saveModalMode === 'chooseDir' && typeof settingsModal !== 'undefined' && settingsModal) {
+                settingsModal.classList.add('active');
+            }
         });
     }
     if (saveConfirmBtn) {
         saveConfirmBtn.addEventListener('click', async (e) => {
             e.preventDefault();
             if (saveModalMode === 'chooseDir') {
-                if (!saveCurrentDir) return;
+                if (!saveCurrentDir || saveCurrentDir === 'TOP') {
+                    showNotification('Selecione uma pasta antes de confirmar.', 'warning');
+                    return;
+                }
                 appPreferences.defaultDownloadDir = saveCurrentDir;
                 if (prefDefaultDownloadPath) {
                     prefDefaultDownloadPath.textContent = saveCurrentDir;
@@ -531,9 +1050,16 @@ function setupModalEvents() {
                 }
                 try { await window.electronAPI.savePreferences(appPreferences); } catch (e) { console.error(e); }
                 closeModals();
+                // Retornar ao modal de Configurações para manter o contexto
+                if (typeof settingsModal !== 'undefined' && settingsModal) {
+                    settingsModal.classList.add('active');
+                }
                 return;
             }
-            if (!pendingDownload.key || !pendingDownload.name || !saveCurrentDir) return;
+            if (!pendingDownload.key || !pendingDownload.name || !saveCurrentDir || saveCurrentDir === 'TOP') {
+                showNotification('Escolha uma pasta para salvar o arquivo.', 'warning');
+                return;
+            }
             const name = (saveFileNameInput?.value || pendingDownload.name).trim();
             if (!name) return;
             const finalPath = joinPaths(saveCurrentDir, name);
@@ -558,6 +1084,64 @@ function setupModalEvents() {
                 e.preventDefault();
                 loadSaveDir(item.dataset.path);
             }
+        });
+    }
+    // Setas de navegação do modal
+    if (saveNavBackBtn) {
+        saveNavBackBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            saveGoBack();
+        });
+    }
+    if (saveNavForwardBtn) {
+        saveNavForwardBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            saveGoForward();
+        });
+    }
+    // Atalhos de teclado para o modal ativo: Alt+Esquerda / Alt+Direita
+    document.addEventListener('keydown', (e) => {
+        if (!(saveModal && saveModal.classList.contains('active'))) return;
+        const isAltLeft = e.altKey && (e.code === 'ArrowLeft' || e.key === 'ArrowLeft');
+        const isAltRight = e.altKey && (e.code === 'ArrowRight' || e.key === 'ArrowRight');
+        if (isAltLeft) { e.preventDefault(); e.stopPropagation(); saveGoBack(); }
+        if (isAltRight) { e.preventDefault(); e.stopPropagation(); saveGoForward(); }
+    });
+
+    // Permitir digitar caminho diretamente na área de breadcrumb (editável)
+    if (saveBreadcrumb) {
+        saveBreadcrumb.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && saveModal && saveModal.classList.contains('active')) {
+                e.preventDefault();
+                const raw = saveBreadcrumb.innerText || '';
+                let targetPath = (raw || '').trim();
+                // Mapeamento amigável: 'Locais' -> 'TOP'
+                if (targetPath.toLowerCase() === 'locais') targetPath = 'TOP';
+                if (targetPath) {
+                    loadSaveDir(targetPath, { showErrorModal: true });
+                }
+            }
+        });
+        // Ao focar para edição, mostrar o caminho completo atual como texto simples
+        saveBreadcrumb.addEventListener('focus', () => {
+            if (saveCurrentDir) {
+                saveBreadcrumb.textContent = (saveCurrentDir === 'TOP') ? 'Locais' : saveCurrentDir;
+            }
+        });
+        // Ao desfocar sem Enter, re-renderizar os breadcrumbs clicáveis
+        saveBreadcrumb.addEventListener('blur', () => {
+            if (saveCurrentDir) {
+                renderSaveBreadcrumb(saveCurrentDir);
+            }
+        });
+    }
+
+    // Modal de erro: retornar para seletor ao confirmar
+    if (pathErrorOkBtn) {
+        pathErrorOkBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (pathErrorModal) pathErrorModal.classList.remove('active');
+            if (saveModal) saveModal.classList.add('active');
         });
     }
 }
@@ -1025,9 +1609,24 @@ function handleSearch(e) {
 
 // Download de arquivo
 async function downloadFile(fileKey, fileName) {
-    // Se preferência de diretório padrão estiver ativa e definida, baixar direto
+    // Se preferência de diretório padrão estiver ativa e definida, validar e baixar direto
     try {
         if (appPreferences.useDefaultDownloadDir && appPreferences.defaultDownloadDir) {
+            if (window.electronAPI && typeof window.electronAPI.validateDir === 'function') {
+                try {
+                    const res = await window.electronAPI.validateDir(appPreferences.defaultDownloadDir);
+                    const ok = !!(res && res.exists && res.isDirectory);
+                    if (!ok) {
+                        showNotification('Local de download padrão não encontrado. Selecione um novo local.', 'warning');
+                        pendingDownload = { key: fileKey, name: fileName };
+                        await openChooseDefaultDirModal();
+                        return;
+                    }
+                } catch (verr) {
+                    console.error('Falha ao validar diretório padrão:', verr);
+                    showNotification('Não foi possível validar o diretório padrão.', 'error');
+                }
+            }
             const savePath = joinPaths(appPreferences.defaultDownloadDir, fileName);
             await performDownload(fileKey, fileName, savePath);
             return;
@@ -1045,11 +1644,22 @@ async function openSaveModal() {
     try {
         const home = await window.electronAPI.getHomeDir();
         saveCurrentDir = home;
+        // inicializar histórico de navegação do seletor
+        saveNavHistory = [];
+        saveNavIndex = -1;
         await loadSaveDir(home);
         // Modo padrão: download
         saveModalMode = 'download';
         const nameRow = saveFileNameInput?.closest('.form-row');
         if (nameRow) nameRow.style.display = '';
+        const labelEl = document.getElementById('save-input-label');
+        if (labelEl) labelEl.textContent = 'Nome do arquivo';
+        if (saveFileNameInput) {
+            saveFileNameInput.placeholder = 'nome.ext';
+        }
+        if (saveBreadcrumb) {
+            renderSaveBreadcrumb(saveCurrentDir || '');
+        }
         const headerEl = saveModal?.querySelector('.modal-header h3');
         if (headerEl) headerEl.textContent = 'Salvar arquivo';
         if (saveConfirmBtn) saveConfirmBtn.textContent = 'Salvar aqui';
@@ -1064,35 +1674,126 @@ async function openChooseDefaultDirModal() {
     try {
         const home = await window.electronAPI.getHomeDir();
         saveCurrentDir = home;
+        // inicializar histórico de navegação do seletor
+        saveNavHistory = [];
+        saveNavIndex = -1;
+        // Abrir imediatamente o modal para feedback visual
+        if (saveModal) saveModal.classList.add('active');
         await loadSaveDir(home);
         // Modo seleção de diretório para preferências
         saveModalMode = 'chooseDir';
         const nameRow = saveFileNameInput?.closest('.form-row');
         if (nameRow) nameRow.style.display = 'none';
+        if (saveBreadcrumb) {
+            renderSaveBreadcrumb(saveCurrentDir || '');
+        }
         const headerEl = saveModal?.querySelector('.modal-header h3');
         if (headerEl) headerEl.textContent = 'Selecionar diretório de download';
         if (saveConfirmBtn) saveConfirmBtn.textContent = 'Selecionar aqui';
-        if (saveModal) saveModal.classList.add('active');
+        // Manter Configurações abertas; seletor aparece por cima (z-index maior)
     } catch (e) {
         console.error('Erro abrindo modal de diretório:', e);
         showNotification('Não foi possível abrir a seleção de diretório', 'error');
     }
 }
 
-async function loadSaveDir(dirPath) {
+async function loadSaveDir(dirPath, options = {}) {
     try {
+        const showErrorModal = !!options.showErrorModal;
+        // Validação prévia quando usuário digita caminho manualmente
+        if (dirPath && dirPath !== 'TOP' && window.electronAPI && typeof window.electronAPI.validateDir === 'function') {
+            try {
+                const res = await window.electronAPI.validateDir(dirPath);
+                const ok = !!(res && res.exists && res.isDirectory);
+                if (!ok) {
+                    if (showErrorModal && typeof pathErrorModal !== 'undefined' && pathErrorModal) {
+                        if (typeof saveModal !== 'undefined' && saveModal) saveModal.classList.remove('active');
+                        pathErrorModal.classList.add('active');
+                    } else {
+                        showNotification('Caminho inválido: ' + dirPath, 'error');
+                    }
+                    return;
+                }
+            } catch (verr) {
+                console.error('Erro validando caminho digitado:', verr);
+                showNotification('Não foi possível validar o caminho informado.', 'error');
+                return;
+            }
+        }
         const { base, entries } = await window.electronAPI.listDir(dirPath);
         saveCurrentDir = base;
+        if (saveBreadcrumb) {
+            renderSaveBreadcrumb(base);
+        }
+        // atualizar histórico, a menos que explicitamente desativado
+        if (options.pushHistory !== false) {
+            if (saveNavHistory.length === 0) {
+                saveNavHistory = [base];
+                saveNavIndex = 0;
+            } else if (saveNavHistory[saveNavIndex] !== base) {
+                if (saveNavIndex < saveNavHistory.length - 1) {
+                    saveNavHistory = saveNavHistory.slice(0, saveNavIndex + 1);
+                }
+                saveNavHistory.push(base);
+                saveNavIndex = saveNavHistory.length - 1;
+            }
+            updateSaveNavButtons();
+        }
         renderSaveBreadcrumb(base);
         renderSaveDirEntries(entries);
     } catch (e) {
         console.error('Erro listando diretório:', e);
-        showNotification('Erro ao listar diretório: ' + e.message, 'error');
+        if (options && options.showErrorModal && typeof pathErrorModal !== 'undefined' && pathErrorModal) {
+            if (typeof saveModal !== 'undefined' && saveModal) saveModal.classList.remove('active');
+            pathErrorModal.classList.add('active');
+        } else {
+            showNotification('Erro ao listar diretório: ' + e.message, 'error');
+        }
+    }
+}
+
+function updateSaveNavButtons() {
+    if (saveNavBackBtn) {
+        if (saveNavIndex > 0) {
+            saveNavBackBtn.removeAttribute('disabled');
+        } else {
+            saveNavBackBtn.setAttribute('disabled', 'true');
+        }
+    }
+    if (saveNavForwardBtn) {
+        if (saveNavIndex >= 0 && saveNavIndex < saveNavHistory.length - 1) {
+            saveNavForwardBtn.removeAttribute('disabled');
+        } else {
+            saveNavForwardBtn.setAttribute('disabled', 'true');
+        }
+    }
+}
+
+function saveGoBack() {
+    if (saveNavIndex > 0) {
+        saveNavIndex -= 1;
+        const target = saveNavHistory[saveNavIndex];
+        loadSaveDir(target, { pushHistory: false });
+        updateSaveNavButtons();
+    }
+}
+
+function saveGoForward() {
+    if (saveNavIndex >= 0 && saveNavIndex < saveNavHistory.length - 1) {
+        saveNavIndex += 1;
+        const target = saveNavHistory[saveNavIndex];
+        loadSaveDir(target, { pushHistory: false });
+        updateSaveNavButtons();
     }
 }
 
 function renderSaveBreadcrumb(base) {
     if (!saveBreadcrumb) return;
+    // Exibir rótulo amigável quando na origem TOP
+    if (base === 'TOP') {
+        saveBreadcrumb.innerHTML = `<span class="crumb" data-path="TOP">Locais</span>`;
+        return;
+    }
     const parts = base.split(/\\\\|\//).filter(Boolean);
     let crumbs = '';
     let accum = '';
@@ -1133,9 +1834,40 @@ function joinPaths(a, b) {
 }
 
 async function performDownload(fileKey, fileName, savePath) {
+    // Se já há download ativo, enfileira até o máximo de 4
+    if (_downloadActive) {
+        if (_downloadQueue.length >= 4) {
+            showNotification('Limite de 4 arquivos na fila atingido', 'info');
+            return;
+        }
+        _downloadQueue.push({ fileKey, fileName, savePath });
+        updateMiniQueueInfo();
+        showNotification(`Adicionado à fila: ${fileName}`, 'info');
+        // Garantir mini janela visível ao enfileirar no modo minimizado
+        if (_downloadMinimized && downloadMini) downloadMini.classList.add('active');
+        return;
+    }
+
+    // Inicia imediatamente
+    _downloadActive = true;
     _downloadCancelledFlag = false;
+    _downloadLastSample = null;
+    _downloadSpeedBps = null;
     _etaLastUpdateAt = 0;
-    showProgressModal();
+    // Ao iniciar novo download sem processo ativo nem fila, abrir modal padrão
+    if (!_downloadQueue.length) {
+        _downloadMinimized = false;
+    }
+    // UI conforme estado minimizado
+    if (_downloadMinimized) {
+        if (progressModal) progressModal.classList.remove('active');
+        if (downloadMini) downloadMini.classList.add('active');
+    } else {
+        showProgressModal();
+    }
+    resetProgressUI();
+    if (progressFileName) progressFileName.textContent = fileName || '';
+
     try {
         const result = await window.electronAPI.downloadFile(fileKey, fileName, savePath);
         if (result.success) {
@@ -1143,10 +1875,7 @@ async function performDownload(fileKey, fileName, savePath) {
         } else {
             const msg = (result.error || result.message || '').toString().toLowerCase();
             const isCancel = msg.includes('cancel') || msg.includes('cancelado') || msg.includes('canceled');
-            if (isCancel) {
-                // Cancelamento: mensagem já tratada no evento de progresso; evitar duplicação
-                // Se o progresso não disparar, ainda fecharemos os modais abaixo
-            } else {
+            if (!isCancel) {
                 showNotification(`Erro no download: ${result.error || result.message}`, 'error');
             }
         }
@@ -1158,8 +1887,66 @@ async function performDownload(fileKey, fileName, savePath) {
             showNotification('Erro no download: ' + (error.message || 'Falha desconhecida'), 'error');
         }
     } finally {
+        // Encerrar UI atual
         closeModals();
+        _downloadActive = false;
+        // Processar próximo da fila
+        processNextFromQueue();
     }
+}
+
+function processNextFromQueue() {
+    if (_downloadQueue.length === 0) {
+        updateMiniQueueInfo();
+        return;
+    }
+    const next = _downloadQueue.shift();
+    updateMiniQueueInfo();
+    if (next && next.fileName) {
+        showNotification(`Iniciando próximo download na fila: ${next.fileName}`, 'info');
+    } else {
+        showNotification('Iniciando próximo download na fila', 'info');
+    }
+    // Mantém estado minimizado se já estava
+    _downloadActive = true;
+    _downloadCancelledFlag = false;
+    _downloadLastSample = null;
+    _downloadSpeedBps = null;
+    _etaLastUpdateAt = 0;
+    if (_downloadMinimized) {
+        if (progressModal) progressModal.classList.remove('active');
+        if (downloadMini) downloadMini.classList.add('active');
+    } else {
+        showProgressModal();
+    }
+    resetProgressUI();
+    if (progressFileName) progressFileName.textContent = next && next.fileName ? next.fileName : '';
+    // Executar tarefa
+    window.electronAPI.downloadFile(next.fileKey, next.fileName, next.savePath)
+        .then(result => {
+            if (result && result.success) {
+                showNotification(`Arquivo baixado: ${result.path}`, 'success');
+            } else if (result) {
+                const msg = (result.error || result.message || '').toString().toLowerCase();
+                const isCancel = msg.includes('cancel') || msg.includes('cancelado') || msg.includes('canceled');
+                if (!isCancel) {
+                    showNotification(`Erro no download: ${result.error || result.message}`, 'error');
+                }
+            }
+        })
+        .catch(error => {
+            console.error('Erro no download:', error);
+            const emsg = (error && error.message ? error.message : '').toString().toLowerCase();
+            const isCancel = emsg.includes('cancel') || emsg.includes('cancelado') || emsg.includes('canceled');
+            if (!isCancel) {
+                showNotification('Erro no download: ' + (error.message || 'Falha desconhecida'), 'error');
+            }
+        })
+        .finally(() => {
+            closeModals();
+            _downloadActive = false;
+            processNextFromQueue();
+        });
 }
 
 // Mostrar modal de link
@@ -1167,15 +1954,21 @@ function showLinkModal(fileKey) {
     selectedFileKey = fileKey;
     linkResult.classList.remove('active');
     generatedLink.value = '';
+    if (linkCustom) {
+        linkCustom.classList.remove('active');
+        linkCustom.setAttribute('aria-hidden', 'true');
+        if (customExpiryValue) customExpiryValue.value = '1';
+        if (customExpiryUnit) customExpiryUnit.value = 'hours';
+    }
     linkModal.classList.add('active');
 }
 
-// Gerar link do arquivo
-async function generateLink(type) {
+// Gerar link do arquivo (expiração em segundos)
+async function generateLink(expirySeconds = 3600) {
     if (!selectedFileKey) return;
 
     try {
-        const url = await window.electronAPI.generateSignedLink(selectedFileKey, 3600);
+        const url = await window.electronAPI.generateSignedLink(selectedFileKey, expirySeconds);
         generatedLink.value = url;
         linkResult.classList.add('active');
     } catch (error) {
@@ -1224,7 +2017,21 @@ function showEmptyState(message) {
 
 // Mostrar modal de progresso
 function showProgressModal() {
+    _downloadMinimized = false;
+    if (downloadMini) downloadMini.classList.remove('active');
     progressModal.classList.add('active');
+    // Aba da fila fechada por padrão ao mostrar o modal de progresso
+    if (modalQueueWrap) {
+        modalQueueWrap.classList.remove('active');
+        if (queuePopoverToggle) {
+            queuePopoverToggle.setAttribute('aria-expanded', 'false');
+            const icon = queuePopoverToggle.querySelector('i');
+            if (icon) {
+                icon.classList.remove('fa-chevron-up');
+                icon.classList.add('fa-chevron-down');
+            }
+        }
+    }
 }
 
 // Fechar modais
@@ -1236,6 +2043,7 @@ function closeModals() {
     if (saveModal) saveModal.classList.remove('active');
     const cancelConfirmModal = document.getElementById('cancel-confirm-modal');
     if (cancelConfirmModal) cancelConfirmModal.classList.remove('active');
+    if (downloadMini) downloadMini.classList.remove('active');
 }
 
 // Configurar eventos dos itens de configuração
@@ -1409,6 +2217,19 @@ async function initSettings() {
     }
     if (prefDefaultDownloadPath) {
         prefDefaultDownloadPath.textContent = appPreferences.defaultDownloadDir || 'Nenhum diretório definido';
+        // Validar diretório padrão carregado e avisar se inexistente/inválido
+        try {
+            if (appPreferences.useDefaultDownloadDir && appPreferences.defaultDownloadDir && window.electronAPI && typeof window.electronAPI.validateDir === 'function') {
+                const v = await window.electronAPI.validateDir(appPreferences.defaultDownloadDir);
+                const ok = !!(v && v.exists && v.isDirectory);
+                if (!ok) {
+                    showNotification('Diretório padrão de download não foi localizado. Selecione um novo local.', 'warning');
+                    prefDefaultDownloadPath.textContent = 'Diretório não encontrado';
+                }
+            }
+        } catch (verr) {
+            console.error('Falha ao validar diretório padrão ao iniciar:', verr);
+        }
     }
     setTheme(appPreferences.theme || 'light');
 }
@@ -1567,29 +2388,51 @@ Desenvolvido com ❤️ usando Electron`;
 }
 
 // Mostrar notificação
-function showNotification(message, type = 'info') {
+function showNotification(message, type = 'info', options = {}) {
     const notifications = document.getElementById('notifications');
-    // Garantir apenas uma notificação visível por vez
-    if (notifications) {
-        notifications.innerHTML = '';
-    }
+    if (!notifications) return;
 
-    const notification = document.createElement('div');
-    notification.className = `notification ${type}`;
+    const enqueue = (msg, tp, opts) => {
+        _notifPending.push({ message: msg, type: tp, options: opts });
+        flushQueue();
+    };
 
-    const icon = type === 'success' ? 'fa-check-circle' :
-        type === 'error' ? 'fa-exclamation-circle' :
-            'fa-info-circle';
+    const createAndShow = ({ message: msg, type: tp, options: opts }) => {
+        // Posicionamento opcional (centralizado)
+        if (opts && opts.position === 'center') {
+            notifications.classList.add('centered');
+        } else {
+            notifications.classList.remove('centered');
+        }
 
-    notification.innerHTML = `
-        <i class="fas ${icon}"></i>
-        <span>${message}</span>
-    `;
+        const el = document.createElement('div');
+        el.className = `notification ${tp || 'info'}`;
+        const icon = tp === 'success' ? 'fa-check-circle' : tp === 'error' ? 'fa-exclamation-circle' : 'fa-info-circle';
+        el.innerHTML = `
+            <i class="fas ${icon}"></i>
+            <span>${msg}</span>
+        `;
+        notifications.appendChild(el);
+        _notifActiveCount++;
 
-    notifications.appendChild(notification);
+        // Auto-fechamento após 5s
+        setTimeout(() => {
+            el.remove();
+            _notifActiveCount = Math.max(0, _notifActiveCount - 1);
+            // Se não há mais notificações ativas, remover centralização
+            if (!_notifActiveCount) {
+                notifications.classList.remove('centered');
+            }
+            flushQueue();
+        }, 5000);
+    };
 
-    // Remover após 5 segundos
-    setTimeout(() => {
-        notification.remove();
-    }, 5000);
+    const flushQueue = () => {
+        while (_notifActiveCount < 3 && _notifPending.length > 0) {
+            const next = _notifPending.shift();
+            createAndShow(next);
+        }
+    };
+
+    enqueue(message, type, options);
 }

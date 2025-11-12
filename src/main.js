@@ -19,12 +19,13 @@ const ENCRYPTION_KEY = 'wasabi-viewer-2025-secret-key-for-sharing';
 function resolveAppIcon() {
   // Preferir .ico no Windows para ícone da barra de tarefas
   const candidates = [
-    // Caminho absoluto fornecido pelo usuário (forma literal)
-    '/c:/Projetos/wasabi-viewer/wasabi_leaf_icon.ico',
-    // Caminho absoluto em formato Windows
-    'C:\\Projetos\\wasabi-viewer\\wasabi_leaf_icon.ico',
-    // Ícone principal na raiz do projeto
+    // Ícone verde na raiz do projeto
+    path.join(__dirname, '../icone_green_leaf.ico'),
+    // Fallback em assets
+    path.join(__dirname, '../assets/icone_green_leaf.ico'),
+    // Antigo ícone como fallback adicional
     path.join(__dirname, '../wasabi_leaf_icon.ico'),
+    path.join(__dirname, '../assets/wasabi_leaf_icon.ico'),
     // Fallbacks
     path.join(__dirname, '../assets/icon.ico'),
     path.join(__dirname, '../assets/icon.png')
@@ -40,6 +41,9 @@ function createWindow() {
     width: 1200,
     height: 800,
     autoHideMenuBar: true,
+    show: false, // evitar flicker exibindo somente quando pronto
+    backgroundColor: '#111111', // previne flash branco inicial
+    useContentSize: true,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -49,10 +53,13 @@ function createWindow() {
     icon: resolveAppIcon() || undefined
   });
 
-  // Abrir a janela maximizada por padrão
-  try { mainWindow.maximize(); } catch (_) { }
-
   mainWindow.loadFile(path.join(__dirname, 'renderer/index.html'));
+
+  // Exibir somente quando pronto para reduzir flicadas; maximizar antes de mostrar
+  mainWindow.once('ready-to-show', () => {
+    try { mainWindow.maximize(); } catch (_) { }
+    try { mainWindow.show(); } catch (_) { }
+  });
 
   // Abrir DevTools em modo de desenvolvimento
   if (process.argv.includes('--dev')) {
@@ -402,16 +409,52 @@ ipcMain.handle('cancel-download', () => {
 
 // Listar diretórios locais para modal customizado
 ipcMain.handle('fs-home-dir', async () => {
+  // Usar origem sintética 'TOP' para exibir pastas superficiais
   try {
-    return os.homedir();
+    return 'TOP';
   } catch (e) {
-    return process.cwd();
+    return 'TOP';
   }
 });
 
 ipcMain.handle('fs-list-dir', async (event, dirPath) => {
   try {
-    const base = dirPath && dirPath.trim() ? dirPath : os.homedir();
+    const isTop = !dirPath || !dirPath.trim() || dirPath === 'TOP';
+    if (isTop) {
+      const topEntries = [];
+      // Enumerar unidades locais (Windows: C:, D:, E:, ...). Em outros SO, incluir raiz.
+      if (process.platform === 'win32') {
+        const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+        for (const l of letters) {
+          const drivePath = `${l}:\\`;
+          try {
+            if (fs.existsSync(drivePath)) {
+              topEntries.push({ name: `Disco Local ${l}:`, path: drivePath, type: 'folder' });
+            }
+          } catch (_) { /* ignore */ }
+        }
+      } else {
+        const rootPath = path.parse(process.cwd()).root || '/';
+        topEntries.push({ name: 'Sistema', path: rootPath, type: 'folder' });
+      }
+      const addIfExists = (label, electronPathKey) => {
+        try {
+          const p = app.getPath(electronPathKey);
+          if (p && fs.existsSync(p)) {
+            topEntries.push({ name: label, path: p, type: 'folder' });
+          }
+        } catch (_) { /* ignore */ }
+      };
+      addIfExists('Downloads', 'downloads');
+      addIfExists('Área de Trabalho', 'desktop');
+      addIfExists('Documentos', 'documents');
+      addIfExists('Imagens', 'pictures');
+      addIfExists('Músicas', 'music');
+      addIfExists('Vídeos', 'videos');
+      return { base: 'TOP', entries: topEntries };
+    }
+
+    const base = dirPath.trim();
     const entries = await fs.promises.readdir(base, { withFileTypes: true });
     const dirs = entries
       .filter(d => d.isDirectory())
@@ -421,6 +464,19 @@ ipcMain.handle('fs-list-dir', async (event, dirPath) => {
   } catch (e) {
     console.error('Erro ao listar diretório:', e);
     return { base: dirPath || '', entries: [], error: e.message };
+  }
+});
+
+// Validar existência e tipo de diretório
+ipcMain.handle('fs-validate-dir', async (event, dirPath) => {
+  try {
+    if (!dirPath || typeof dirPath !== 'string') {
+      return { exists: false, isDirectory: false };
+    }
+    const stats = await fs.promises.stat(dirPath);
+    return { exists: true, isDirectory: stats.isDirectory() };
+  } catch (e) {
+    return { exists: false, isDirectory: false, error: e.message };
   }
 });
 
